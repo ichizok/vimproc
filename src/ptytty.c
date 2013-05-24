@@ -11,11 +11,17 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
-#if defined __sun__
+#if defined __sun__ || defined __hpux__
 # include <stropts.h>
 #endif
 #include <unistd.h>
 #include <termios.h>
+
+#if defined __aix__
+# define MASTER_DEV "/dev/ptc"
+#else
+# define MASTER_DEV "/dev/ptmx"
+#endif
 
 #include "ptytty.h"
 
@@ -38,7 +44,7 @@ ptsname_compat(int fd, char **buf)
 static int
 _internal_get_pty(int *master, char **path)
 {
-    if ((*master = open("/dev/ptmx", O_RDWR|O_NOCTTY)) == -1)
+    if ((*master = open(MASTER_DEV, O_RDWR|O_NOCTTY)) == -1)
         return -1;
     if (grantpt(*master) != 0)
         return -1;
