@@ -547,7 +547,7 @@ error:
     return vp_stack_return_error(&_result, errfmt, strerror(errno));
 
 child_error:
-    dummy = write(STDOUT_FILENO, strerror(errno), strlen(strerror(errno)));
+    dummy = write(STDERR_FILENO, strerror(errno), strlen(strerror(errno)) + 1);
     _exit(EXIT_FAILURE);
 #undef VP_GOTO_ERROR
 }
@@ -709,7 +709,7 @@ error:
     return vp_stack_return_error(&_result, errfmt, strerror(errno));
 
 child_error:
-    dummy = write(STDOUT_FILENO, strerror(errno), strlen(strerror(errno)));
+    dummy = write(STDERR_FILENO, strerror(errno), strlen(strerror(errno)) + 1);
     _exit(EXIT_FAILURE);
 #undef VP_GOTO_ERROR
 }
