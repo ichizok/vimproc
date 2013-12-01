@@ -672,8 +672,11 @@ function! s:parse_redirection(script) "{{{
   while i < max
     if a:script[i] ==# '<'
       " Input redirection.
-      let fd[0] = matchstr(a:script, '<\s*\zs\f*', i)
-      let i = matchend(a:script, '<\s*\zs\f*', i)
+      let skip = matchend(a:script, '^\%(&-\)\?\s*', i+1)
+      let in = matchstr(a:script, '^\f*', skip)
+      
+      let fd[0] = a:script[i+1 : i+2] ==# '&-' ? '@-' : in
+      let i = skip + len(in)
     elseif a:script[i :] =~# '^[12]\?>' 
       " Output redirection.
       if a:script[i] ==# '>'
@@ -684,16 +687,19 @@ function! s:parse_redirection(script) "{{{
         let i += 2
       endif
 
-      let skip = matchend(a:script, '[>&]\?\s*', i)
-      let out = matchstr(a:script, '\f\+', skip)
+      let skip = matchend(a:script, '^[>&]\?\s*', i)
+      let out = matchstr(a:script, '^\f\+', skip)
 
       if a:script[i] ==# '&'
         if a:script[i+1] ==# '-'
           let fd[n] = '@-'
-        else
-          if (out ==# '1' || out ==# '2') && n != out && fd[out] !=# '@-'
+        elseif out ==# '1' || out ==# '2'
+          if n != out && fd[out] !=# '@-'
             let fd[n] = fd[out] ==# '' ? '@' . out : fd[out]
           endif
+        elseif n == 1
+          let fd[1] = out
+          let fd[2] = out
         endif
       elseif a:script[i] ==# '-'
         let 
@@ -709,7 +715,6 @@ function! s:parse_redirection(script) "{{{
     endif
   endwhile
 
-  echomsg '#2>['.string([fd, script]).']'
   return [{ 'stdin' : fd[0], 'stdout' : fd[1], 'stderr' : fd[2] }, script]
 endfunction"}}}
 
