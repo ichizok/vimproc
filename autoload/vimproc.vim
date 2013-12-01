@@ -468,26 +468,32 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
   let npipe = a:npipe
 
   " Open input.
-  let hstdin = (empty(a:commands) || a:commands[0].fd.stdin == '')?
-        \ 0 : vimproc#fopen(a:commands[0].fd.stdin, 'O_RDONLY').fd
+  let hstdin = (empty(a:commands) || a:commands[0].fd.stdin == '') ?
+        \ 0 : (a:commands[0].fd.stdin == '@-' ? -1 :
+        \ vimproc#fopen(a:commands[0].fd.stdin, 'O_RDONLY').fd)
 
   let is_pty = !vimproc#util#is_windows() && a:is_pty
 
   let cnt = 0
   for command in a:commands
+    if cnt > 0
+      let hstdin = (command.fd.stdin ==# '@-') ? '-1' : stdout_list[-1].fd
+    endif
+
     if is_pty && command.fd.stdout == '' && cnt == 0
           \ && len(a:commands) != 1
       " pty_open() use pipe.
       let hstdout = 1
+    elseif command.fd.stdout[0] ==# '@'
+      let hstdout = command.fd.stdout[1] ==# '-' ? -1 : 0
     else
       let mode = 'O_WRONLY | O_CREAT'
-      if command.fd.stdout =~ '^>'
+      if command.fd.stdout[0] ==# '>'
         let mode .= ' | O_APPEND'
         let command.fd.stdout = command.fd.stdout[1:]
       else
         let mode .= ' | O_TRUNC'
       endif
-
       let hstdout = s:is_pseudo_device(command.fd.stdout) ?
             \ 0 : vimproc#fopen(command.fd.stdout, mode).fd
     endif
@@ -495,10 +501,16 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     if is_pty && command.fd.stderr == '' && cnt == 0
           \ && len(a:commands) != 1
       " pty_open() use pipe.
-      let hstderr = 1
+      let hstderr = 2
+    elseif command.fd.stderr[0] ==# '@'
+      let hstderr = command.fd.stderr[1] ==# '-' ?
+            \ -1 : (len(a:commands) != 1 ? 1 : 0)
+    elseif command.fd.stderr =~# '^\f' 
+          \ && command.fd.stderr ==# command.fd.stdout
+      let hstderr = hstdout
     else
       let mode = 'O_WRONLY | O_CREAT'
-      if command.fd.stderr =~ '^>'
+      if command.fd.stderr[0] ==# '>'
         let mode .= ' | O_APPEND'
         let command.fd.stderr = command.fd.stderr[1:]
       else
@@ -508,7 +520,8 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
             \ 0 : vimproc#fopen(command.fd.stderr, mode).fd
     endif
 
-    if command.fd.stderr ==# '/dev/stdout'
+    if (hstdout != 0 && hstdout == hstderr)
+          \ || hstdout == -1 || hstderr == -1
       let npipe = 2
     endif
 
@@ -531,33 +544,45 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
 
     if len(pipe) == 4
       let [pid, fd_stdin, fd_stdout, fd_stderr] = pipe
-      let stderr = s:fdopen(fd_stderr,
-            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
     else
       let [pid, fd_stdin, fd_stdout] = pipe
-      let stderr = s:closed_fdopen(
-            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
     endif
 
     call add(pid_list, pid)
-    let stdin = s:fdopen(fd_stdin,
-          \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    if hstdin != -1
+      let stdin = s:fdopen(fd_stdin,
+            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    else
+      let stdin = s:closed_fdopen(
+            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    endif
     let stdin.is_pty = is_pty
           \ && (cnt == 0 || cnt == len(a:commands)-1)
           \ && hstdin == 0
     call add(stdin_list, stdin)
-    let stdout = s:fdopen(fd_stdout,
-          \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    if hstdout != -1
+      let stdout = s:fdopen(fd_stdout,
+            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    else
+      let stdout = s:closed_fdopen(
+            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    endif
     let stdout.is_pty = is_pty
           \ && (cnt == 0 || cnt == len(a:commands)-1)
           \ && hstdout == 0
     call add(stdout_list, stdout)
+    if hstderr != -1 && len(pipe) == 4
+      let stderr = s:fdopen(fd_stderr,
+            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    else
+      let stderr = s:closed_fdopen(
+            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    endif
     let stderr.is_pty = is_pty
           \ && (cnt == 0 || cnt == len(a:commands)-1)
           \ && hstderr == 0
     call add(stderr_list, stderr)
 
-    let hstdin = stdout_list[-1].fd
     let cnt += 1
   endfor
 
