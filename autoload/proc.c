@@ -543,8 +543,7 @@ vp_pipe_open(char *args)
 
         /* 2>&1 >&- */
         if (hstdout < 0 && hstderr == 1) {
-            fd[1][0] = fd[2][0]
-            fd[2][0] = 0
+            fd[1][0] = fd[2][0];
         }
 
         vp_stack_push_num(&_result, "%d", pid);
@@ -614,7 +613,7 @@ vp_pty_open(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
     /* Set pipe */
-    if (hstdin > 1)
+    if (hstdin > 1) {
         fd[0][0] = hstdin;
         fd[0][1] = 0;
     } else if (hstdin == 1) {
@@ -720,7 +719,7 @@ vp_pty_open(char *args)
 
         /* 2>&1 >&- */
         if (hstdout < 0 && hstderr == 1) {
-            fd[1][0] = fd[2][0]
+            fd[1][0] = fd[2][0];
         }
 
         vp_stack_push_num(&_result, "%d", pid);
