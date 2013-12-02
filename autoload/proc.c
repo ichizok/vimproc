@@ -426,19 +426,21 @@ vp_pipe_open(char *args)
         if (pipe(fd[0]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
+    } else if (hstdin < -1) {
+        close(-hstdin);
     }
-    if (hstdout > 0) {
+    if (hstdout > 1) {
         fd[1][1] = hstdout;
         fd[1][0] = 0;
-    } else if (hstdout == 0){
+    } else if (hstdout == 0 || hstderr == 1){
         if (pipe(fd[1]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
     }
-    if (hstderr > 0) {
+    if (hstderr > 2) {
         fd[2][1] = hstderr;
         fd[2][0] = 0;
-    } else if (npipe == 3 && hstderr == 0) {
+    } else if (npipe == 3 && (hstderr == 0 || hstdout == 2)) {
         if (pipe(fd[2]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
@@ -537,9 +539,6 @@ vp_pipe_open(char *args)
         if (fd[1][1] > 0) {
             close(fd[1][1]);
         }
-        if (fd[2][1] > 0) {
-            close(fd[2][1]);
-        }
 
         /* 2>&1 >&- */
         if (hstdout < 0 && hstderr == 1) {
@@ -551,6 +550,7 @@ vp_pipe_open(char *args)
         vp_stack_push_num(&_result, "%d", fd[1][0]);
         if (npipe == 3) {
             vp_stack_push_num(&_result, "%d", fd[2][0]);
+            vp_stack_push_num(&_result, "%d", fd[2][1]);
         }
         return vp_stack_return(&_result);
     }
@@ -620,6 +620,8 @@ vp_pty_open(char *args)
         if (pipe(fd[0]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
+    } else if (hstdin < -1) {
+        close(-hstdin);
     }
     if (hstdout > 1) {
         fd[1][1] = hstdout;
@@ -706,9 +708,6 @@ vp_pty_open(char *args)
         if (fd[1][1] > 0) {
             close(fd[1][1]);
         }
-        if (fd[2][1] > 0) {
-            close(fd[2][1]);
-        }
 
         if (hstdin == 0) {
             fd[0][1] = fdm;
@@ -727,6 +726,7 @@ vp_pty_open(char *args)
         vp_stack_push_num(&_result, "%d", fd[1][0]);
         if (npipe == 3) {
             vp_stack_push_num(&_result, "%d", fd[2][0]);
+            vp_stack_push_num(&_result, "%d", fd[2][1]);
         }
         return vp_stack_return(&_result);
     }
