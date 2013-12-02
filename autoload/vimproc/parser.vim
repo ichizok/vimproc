@@ -670,7 +670,7 @@ function! s:parse_redirection(script) "{{{
   let i = 0
   let max = len(a:script)
   while i < max
-    if a:script[i] ==# '<'
+    if a:script[i :] =~# '^0\?<'
       " Input redirection.
       let skip = matchend(a:script, '^\%(&-\)\?\s*', i+1)
       let in = matchstr(a:script, '^\f*', skip)
