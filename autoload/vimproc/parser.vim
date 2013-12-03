@@ -695,7 +695,8 @@ function! s:parse_redirection(script) "{{{
           let fd[n] = '@-'
         elseif out ==# '1' || out ==# '2' || out ==# '3'
           if n != out && fd[out] !=# '@-'
-            let fd[n] = fd[out] ==# '' ? '@' . out : fd[out]
+            let fd[n] = fd[out] ==# '' ? '@' . out
+                  \ : fd[out] ==# '@' . n ? '' : fd[out]
           endif
         elseif n == 1
           let fd[1] = out
