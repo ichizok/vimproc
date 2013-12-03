@@ -665,7 +665,7 @@ function! s:parse_wildcard(script) "{{{
 endfunction"}}}
 function! s:parse_redirection(script) "{{{
   let script = ''
-  let fd = ['', '', '']
+  let fd = ['', '', '', '']
 
   let i = 0
   let max = len(a:script)
@@ -677,7 +677,7 @@ function! s:parse_redirection(script) "{{{
       
       let fd[0] = a:script[i+1 : i+2] ==# '&-' ? '@-' : in
       let i = skip + len(in)
-    elseif a:script[i :] =~# '^[12]\?>' 
+    elseif a:script[i :] =~# '^[123]\?>' 
       " Output redirection.
       if a:script[i] ==# '>'
         let n = 1
@@ -693,7 +693,7 @@ function! s:parse_redirection(script) "{{{
       if a:script[i] ==# '&'
         if a:script[i+1] ==# '-'
           let fd[n] = '@-'
-        elseif out ==# '1' || out ==# '2'
+        elseif out ==# '1' || out ==# '2' || out ==# '3'
           if n != out && fd[out] !=# '@-'
             let fd[n] = fd[out] ==# '' ? '@' . out : fd[out]
           endif
