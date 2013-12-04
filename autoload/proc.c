@@ -408,6 +408,7 @@ vp_pipe_open(char *args)
     int fd[3][2] = {{0}};
     pid_t pid;
     int dummy;
+    int closable;
     char *errfmt;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
@@ -417,6 +418,7 @@ vp_pipe_open(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &closable));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
     if (hstdin > 0) {
@@ -526,15 +528,16 @@ vp_pipe_open(char *args)
         if (fd[1][1] > 0) {
             close(fd[1][1]);
         }
-        if (fd[2][1] > 0) {
+        if (fd[2][1] > 0 && closable) {
             close(fd[2][1]);
         }
 
         vp_stack_push_num(&_result, "%d", pid);
         vp_stack_push_num(&_result, "%d", fd[0][1]);
         vp_stack_push_num(&_result, "%d", fd[1][0]);
-        if (npipe == 3) {
-            vp_stack_push_num(&_result, "%d", fd[2][0]);
+        vp_stack_push_num(&_result, "%d", fd[2][0]);
+        if (!closable) {
+            vp_stack_push_num(&_result, "%d", fd[2][1]);
         }
         return vp_stack_return(&_result);
     }
@@ -581,8 +584,9 @@ vp_pty_open(char *args)
     struct winsize ws = {0, 0, 0, 0};
     int dummy;
     int hstdin, hstderr, hstdout;
-    int fdm;
+    int master = 0, slave = 0;
     int npipe;
+    int closable;
     char *errfmt;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
@@ -594,16 +598,27 @@ vp_pty_open(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &closable));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
+
+    if (openpty(&master, &slave, NULL, NULL, &ws) < 0) {
+        VP_GOTO_ERROR("openpty() error: %s");
+    }
 
     /* Set pipe */
     if (hstdin > 0) {
         fd[0][0] = hstdin;
         fd[0][1] = 0;
+    } else if (hstdin == 0) {
+        fd[0][0] = slave;
+        fd[0][1] = master;
     }
     if (hstdout > 1) {
         fd[1][1] = hstdout;
         fd[1][0] = 0;
+    } else if (hstdout == 0) {
+        fd[1][1] = slave;
+        fd[1][0] = master;
     } else if (hstdout == 1) {
         if (pipe(fd[1]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
@@ -612,25 +627,29 @@ vp_pty_open(char *args)
     if (hstderr > 1) {
         fd[2][1] = hstderr;
         fd[2][0] = 0;
-    } else if (npipe == 3) {
-        if (hstderr == 1){
-            if (pipe(fd[2]) < 0) {
-                VP_GOTO_ERROR("pipe() error: %s");
-            }
-        } else if (hstderr == 0) {
-            if (openpty(&fd[2][0], &fd[2][1], NULL, NULL, &ws) < 0) {
-                VP_GOTO_ERROR("openpty() error: %s");
-            }
+    } else if (npipe == 2) {
+        fd[2][1] = slave;
+        fd[2][0] = 0;
+    } else if (npipe == 3 /* && hstderr >= 0 */) {
+        if (pipe(fd[2]) < 0) {
+            VP_GOTO_ERROR("pipe() error: %s");
         }
     }
 
-    pid = forkpty(&fdm, NULL, NULL, &ws);
+    pid = fork();
     if (pid < 0) {
+        close(master);
+        close(slave);
         VP_GOTO_ERROR("fork() error: %s");
     } else if (pid == 0) {
         /* child */
         char **argv;
         int i;
+
+        close(master);
+
+        /* Set process group. */
+        setpgid(0, 0);
 
         /* Close pipe */
         if (fd[1][0] > 0) {
@@ -678,25 +697,29 @@ vp_pty_open(char *args)
         goto child_error;
     } else {
         /* parent */
-        if (fd[1][1] > 0) {
+        close(slave);
+
+        if (hstdout > 1) {
             close(fd[1][1]);
         }
-        if (fd[2][1] > 0) {
+        if (hstderr > 1 || (fd[2][1] > 0 && closable)) {
             close(fd[2][1]);
         }
 
-        if (hstdin == 0) {
-            fd[0][1] = fdm;
-        }
-        if (hstdout == 0) {
-            fd[1][0] = hstdin == 0 ? dup(fdm) : fdm;
+        if (hstdin == 0 && hstdout == 0) {
+            fd[1][0] = dup(fd[1][0]);
         }
 
         vp_stack_push_num(&_result, "%d", pid);
         vp_stack_push_num(&_result, "%d", fd[0][1]);
         vp_stack_push_num(&_result, "%d", fd[1][0]);
-        if (npipe == 3) {
-            vp_stack_push_num(&_result, "%d", fd[2][0]);
+        vp_stack_push_num(&_result, "%d", fd[2][0]);
+        if (closable) {
+            close(master);
+            close(slave);
+        } else {
+            vp_stack_push_num(&_result, "%d", master);
+            vp_stack_push_num(&_result, "%d", slave);
         }
         return vp_stack_return(&_result);
     }
