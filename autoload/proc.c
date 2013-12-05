@@ -472,7 +472,7 @@ vp_pipe_open(char *args)
             close(fd[2][0]);
         }
 
-        if (fd[1][1] == 2 && fd[2][1] == 1) {
+        if ((npipe == 2 && fd[2][1] == 0) || fd[2][1] == 1) {
             fd[2][1] = dup(STDOUT_FILENO);
         }
 
@@ -488,7 +488,9 @@ vp_pipe_open(char *args)
             if (dup2(fd[1][1], STDOUT_FILENO) != STDOUT_FILENO) {
                 goto child_error;
             }
-            close(fd[1][1]);
+            if (fd[1][1] > 2) {
+                close(fd[1][1]);
+            }
         } else if (fd[1][1] < 0) {
             close(STDOUT_FILENO);
         }
@@ -496,13 +498,11 @@ vp_pipe_open(char *args)
             if (dup2(fd[2][1], STDERR_FILENO) != STDERR_FILENO) {
                 goto child_error;
             }
-            close(fd[2][1]);
+            if (fd[2][1] > 2) {
+                close(fd[2][1]);
+            }
         } else if (fd[2][1] < 0) {
             close(STDERR_FILENO);
-        } else if (npipe == 2) {
-            if (dup2(STDOUT_FILENO, STDERR_FILENO) != STDERR_FILENO) {
-                goto child_error;
-            }
         }
 
         {

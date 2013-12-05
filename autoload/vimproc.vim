@@ -570,7 +570,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       endif
     endif
-    if last
+    if is_last
       let stdout.is_pty = is_pty && hstdout == pts.fd
       if hstdout == 0 || stdout.is_pty
         let stdout = s:fdopen(stdout.is_pty ? ptm.fd : fd_stdout,
