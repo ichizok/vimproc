@@ -408,7 +408,7 @@ vp_pipe_open(char *args)
     int fd[3][2] = {{0}};
     pid_t pid;
     int dummy;
-    int closable;
+    int hkeep[2];
     char *errfmt;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
@@ -418,21 +418,26 @@ vp_pipe_open(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &closable));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hkeep[0]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hkeep[1]));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
-    if (hstdin > 0) {
+    if (hstdin < 0 || 1 < hstdin) {
         fd[0][0] = hstdin;
         fd[0][1] = 0;
     } else {
         if (pipe(fd[0]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
+        if (hstdin == 1) {
+            close(fd[0][1]);
+            fd[0][1] = 0;
+        }
     }
     if (hstdout > 0) {
         fd[1][1] = hstdout;
         fd[1][0] = 0;
-    } else {
+    } else if (hstdout == 0) {
         if (pipe(fd[1]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
@@ -466,23 +471,34 @@ vp_pipe_open(char *args)
         if (fd[2][0] > 0) {
             close(fd[2][0]);
         }
+
+        if (fd[1][1] == 2 && fd[2][1] == 1) {
+            fd[2][1] = dup(STDOUT_FILENO);
+        }
+
         if (fd[0][0] > 0) {
             if (dup2(fd[0][0], STDIN_FILENO) != STDIN_FILENO) {
                 goto child_error;
             }
             close(fd[0][0]);
+        } else if (fd[0][0] < 0) {
+            close(fd[0][0] == -1 ? STDIN_FILENO : -fd[0][0]);
         }
         if (fd[1][1] > 0) {
             if (dup2(fd[1][1], STDOUT_FILENO) != STDOUT_FILENO) {
                 goto child_error;
             }
             close(fd[1][1]);
+        } else if (fd[1][1] < 0) {
+            close(STDOUT_FILENO);
         }
         if (fd[2][1] > 0) {
             if (dup2(fd[2][1], STDERR_FILENO) != STDERR_FILENO) {
                 goto child_error;
             }
             close(fd[2][1]);
+        } else if (fd[2][1] < 0) {
+            close(STDERR_FILENO);
         } else if (npipe == 2) {
             if (dup2(STDOUT_FILENO, STDERR_FILENO) != STDERR_FILENO) {
                 goto child_error;
@@ -522,21 +538,21 @@ vp_pipe_open(char *args)
         goto child_error;
     } else {
         /* parent */
-        if (fd[0][0] > 0) {
+        if (hstdin >= 0 && fd[0][0] != hkeep[0]) {
             close(fd[0][0]);
         }
-        if (fd[1][1] > 0) {
+        if (hstdout >= 0 && fd[1][1] != hkeep[0]) {
             close(fd[1][1]);
         }
-        if (fd[2][1] > 0 && closable) {
+        if (hstderr > 0 && fd[2][1] != hkeep[1]) {
             close(fd[2][1]);
         }
 
         vp_stack_push_num(&_result, "%d", pid);
         vp_stack_push_num(&_result, "%d", fd[0][1]);
         vp_stack_push_num(&_result, "%d", fd[1][0]);
-        vp_stack_push_num(&_result, "%d", fd[2][0]);
-        if (!closable) {
+        if (npipe == 3) {
+            vp_stack_push_num(&_result, "%d", fd[2][0]);
             vp_stack_push_num(&_result, "%d", fd[2][1]);
         }
         return vp_stack_return(&_result);
@@ -576,165 +592,21 @@ vp_pipe_write(char *args)
 const char *
 vp_pty_open(char *args)
 {
-#define VP_GOTO_ERROR(_fmt) do { errfmt = (_fmt); goto error; } while(0)
     vp_stack_t stack;
-    int argc;
-    int fd[3][2] = {{0}};
-    pid_t pid;
-    struct winsize ws = {0, 0, 0, 0};
-    int dummy;
-    int hstdin, hstderr, hstdout;
-    int master = 0, slave = 0;
-    int npipe;
-    int closable;
-    char *errfmt;
+    struct winsize ws = {0};
+    int master, slave;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &npipe));
-    if (npipe != 2 && npipe != 3)
-        return vp_stack_return_error(&_result, "npipe range error. wrong pipes.");
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%hu", &(ws.ws_col)));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%hu", &(ws.ws_row)));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &closable));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
     if (openpty(&master, &slave, NULL, NULL, &ws) < 0) {
-        VP_GOTO_ERROR("openpty() error: %s");
+        return vp_stack_return_error(&_result, "openpty() error: %s", strerror(errno));
     }
 
-    /* Set pipe */
-    if (hstdin > 0) {
-        fd[0][0] = hstdin;
-        fd[0][1] = 0;
-    } else if (hstdin == 0) {
-        fd[0][0] = slave;
-        fd[0][1] = master;
-    }
-    if (hstdout > 1) {
-        fd[1][1] = hstdout;
-        fd[1][0] = 0;
-    } else if (hstdout == 0) {
-        fd[1][1] = slave;
-        fd[1][0] = master;
-    } else if (hstdout == 1) {
-        if (pipe(fd[1]) < 0) {
-            VP_GOTO_ERROR("pipe() error: %s");
-        }
-    }
-    if (hstderr > 1) {
-        fd[2][1] = hstderr;
-        fd[2][0] = 0;
-    } else if (npipe == 2) {
-        fd[2][1] = slave;
-        fd[2][0] = 0;
-    } else if (npipe == 3 /* && hstderr >= 0 */) {
-        if (pipe(fd[2]) < 0) {
-            VP_GOTO_ERROR("pipe() error: %s");
-        }
-    }
-
-    pid = fork();
-    if (pid < 0) {
-        close(master);
-        close(slave);
-        VP_GOTO_ERROR("fork() error: %s");
-    } else if (pid == 0) {
-        /* child */
-        char **argv;
-        int i;
-
-        close(master);
-
-        /* Set process group. */
-        setpgid(0, 0);
-
-        /* Close pipe */
-        if (fd[1][0] > 0) {
-            close(fd[1][0]);
-        }
-        if (fd[2][0] > 0) {
-            close(fd[2][0]);
-        }
-
-        if (fd[0][0] > 0) {
-            if (dup2(fd[0][0], STDIN_FILENO) != STDIN_FILENO) {
-                goto child_error;
-            }
-            close(fd[0][0]);
-        }
-
-        if (fd[1][1] > 0) {
-            if (dup2(fd[1][1], STDOUT_FILENO) != STDOUT_FILENO) {
-                goto child_error;
-            }
-            close(fd[1][1]);
-        }
-
-        if (fd[2][1] > 0) {
-            if (dup2(fd[2][1], STDERR_FILENO) != STDERR_FILENO) {
-                goto child_error;
-            }
-            close(fd[2][1]);
-        }
-
-        argv = malloc(sizeof(char *) * (argc+1));
-        if (argv == NULL) {
-            goto child_error;
-        }
-        for (i = 0; i < argc; ++i) {
-            if (vp_stack_pop_str(&stack, &(argv[i]))) {
-                free(argv);
-                goto child_error;
-            }
-        }
-        argv[argc] = NULL;
-
-        execv(argv[0], argv);
-        /* error */
-        goto child_error;
-    } else {
-        /* parent */
-        close(slave);
-
-        if (hstdout > 1) {
-            close(fd[1][1]);
-        }
-        if (hstderr > 1 || (fd[2][1] > 0 && closable)) {
-            close(fd[2][1]);
-        }
-
-        if (hstdin == 0 && hstdout == 0) {
-            fd[1][0] = dup(fd[1][0]);
-        }
-
-        vp_stack_push_num(&_result, "%d", pid);
-        vp_stack_push_num(&_result, "%d", fd[0][1]);
-        vp_stack_push_num(&_result, "%d", fd[1][0]);
-        vp_stack_push_num(&_result, "%d", fd[2][0]);
-        if (closable) {
-            close(master);
-            close(slave);
-        } else {
-            vp_stack_push_num(&_result, "%d", master);
-            vp_stack_push_num(&_result, "%d", slave);
-        }
-        return vp_stack_return(&_result);
-    }
-    /* DO NOT REACH HERE */
-    return NULL;
-
-    /* error */
-error:
-    close_fds(fd);
-    return vp_stack_return_error(&_result, errfmt, strerror(errno));
-
-child_error:
-    dummy = write(STDOUT_FILENO, strerror(errno), strlen(strerror(errno)));
-    _exit(EXIT_FAILURE);
-#undef VP_GOTO_ERROR
+    vp_stack_push_num(&_result, "%d", master);
+    vp_stack_push_num(&_result, "%d", slave);
+    return vp_stack_return(&_result);
 }
 
 const char *

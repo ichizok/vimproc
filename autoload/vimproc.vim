@@ -461,25 +461,50 @@ function! vimproc#plineopen3(commands, ...) "{{{
   return s:plineopen(3, commands, is_pty)
 endfunction"}}}
 function! s:plineopen(npipe, commands, is_pty) "{{{
+  if empty(a:commands)
+    return { 'pid': -1, 'is_valid': 0 }
+  endif
+
   let pid_list = []
   let npipe = a:npipe
-  let gin = 0
-  let gout = 0
-
-  " Open input.
-  let hstdin = (empty(a:commands) || a:commands[0].fd.stdin == '')?
-        \ 0 : vimproc#fopen(a:commands[0].fd.stdin, 'O_RDONLY').fd
-
   let is_pty = !vimproc#util#is_windows() && a:is_pty
+  let hkeep = [0, 0]
+
+  if is_pty
+    let [fd_ptm, fd_pts] = s:vp_pty_open(winwidth(0)-5, winheight(0))
+    let ptm = s:fdopen(fd_ptm,
+            \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
+    let pts = s:fdopen(fd_pts,
+            \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
+    let hkeep[0] = pts.fd
+  endif
+  if npipe == 3
+    let errsnk = {}
+  endif
 
   let cnt = 0
   for command in a:commands
-    let last = cnt == len(a:commands) - 1
+    let is_last = cnt == len(a:commands) - 1
 
-    if is_pty && command.fd.stdout == '' && cnt == 0
-          \ && len(a:commands) != 1
-      " pty_open() use pipe.
-      let hstdout = 1
+    " Open input.
+    if command.fd.stdin ==# '' && cnt == 0
+      let hstdin = is_pty ? pts.fd : 0
+    elseif command.fd.stdin ==# '@-'
+      let hstdin = cnt != 0 && fd_stdout == 0 ? -1 : -fd_stdout
+    elseif command.fd.stdin !=# ''
+      let hstdin = vimproc#fopen(command.fd.stdin, 'O_RDONLY').fd
+    else
+      let hstdin = fd_stdout == 0 ? 1 : fd_stdout
+    endif
+
+    if command.fd.stdin ==# '' && is_last
+      let hstdout = is_pty ? pts.fd : 0
+    elseif command.fd.stdout ==# '@-'
+      let hstdout = -1
+    elseif command.fd.stdout ==# '@2'
+      let hstdout = 2
+    elseif s:is_pseudo_device(command.fd.stdout) 
+      let hstdout = 0
     else
       let mode = 'O_WRONLY | O_CREAT'
       if command.fd.stdout =~ '^>'
@@ -488,15 +513,19 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       else
         let mode .= ' | O_TRUNC'
       endif
-
-      let hstdout = s:is_pseudo_device(command.fd.stdout) ?
-            \ 0 : vimproc#fopen(command.fd.stdout, mode).fd
+      let hstdout = vimproc#fopen(command.fd.stdout, mode).fd
     endif
 
-    if command.fd.stderr == ''
-      " pty_open() use pipe.
-      let hstderr = cnt == 0 ? 0 : gin
-    else 
+    if command.fd.stderr ==# ''
+      let hstderr = npipe == 3 && !empty(errsnk) ? errsnk.fd
+            \ : (is_pty && npipe == 2) ? pts.fd : 0
+    elseif command.fd.stderr ==# '@-'
+      let hstderr = -1
+    elseif command.fd.stderr ==# '@1'
+      let hstderr = 1
+    elseif s:is_pseudo_device(command.fd.stderr) 
+      let hstderr = 0
+    else
       let mode = 'O_WRONLY | O_CREAT'
       if command.fd.stderr =~ '^>'
         let mode .= ' | O_APPEND'
@@ -504,65 +533,71 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       else
         let mode .= ' | O_TRUNC'
       endif
-      let hstderr = s:is_pseudo_device(command.fd.stderr) ?
-            \ 0 : vimproc#fopen(command.fd.stderr, mode).fd
+      let hstderr = vimproc#fopen(command.fd.stderr, mode).fd
     endif
 
     let args = s:convert_args(command.args)
     let command_name = fnamemodify(args[0], ':t:r')
-    let pty_npipe = cnt == 0
-          \ && hstdin == 0 && hstdout == 0 && hstderr == 0
-          \ && exists('g:vimproc#popen2_commands')
+    let pty_npipe = exists('g:vimproc#popen2_commands')
           \ && get(g:vimproc#popen2_commands, command_name, 0) != 0 ?
           \ 2 : npipe
 
-    if is_pty && cnt == 0
-      " Use pty_open().
-      let pipe = s:vp_pty_open(pty_npipe, winwidth(0)-5, winheight(0),
-            \ hstdin, hstdout, hstderr, last, args)
-    else
-      let pipe = s:vp_pipe_open(pty_npipe,
-            \ hstdin, hstdout, hstderr, last, args)
-    endif
+    let pipe = s:vp_pipe_open(pty_npipe,
+          \ hstdin, hstdout, hstderr, hkeep, args)
 
-    if len(pipe) == 6
-      let [pid, fd_stdin, fd_stdout, fd_stderr, gout, gin] = pipe
-      let stderr = s:fdopen(gout,
-            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
-    elseif len(pipe) == 5
-      let [pid, fd_stdin, fd_stdout, fd_stderr, gin] = pipe
-      let stderr = s:fdopen(gout,
-            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+    if len(pipe) == 5
+      let [pid, fd_stdin, fd_stdout, fd_stderr, fd_errsnk] = pipe
+      if empty(errsnk) && fd_stderr > 0
+        let stderr = s:fdopen(fd_stderr,
+              \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+        let errsnk = s:fdopen(fd_errsnk,
+              \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+        let hkeep[1] = errsnk.fd
+      endif
     else
       let [pid, fd_stdin, fd_stdout] = pipe
     endif
 
     call add(pid_list, pid)
+
     if cnt == 0
-      let stdin = s:fdopen(fd_stdin,
-            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
-      let stdin.is_pty = is_pty
-            \ && (cnt == 0 || cnt == len(a:commands)-1)
-            \ && hstdin == 0
+      let stdin.is_pty = is_pty && hstdin == pts.fd
+      if hstdin == 0 || stdin.is_pty
+        let stdin = s:fdopen(stdin.is_pty ? ptm.fd : fd_stdin,
+              \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+      else
+        let stdin = s:closed_fdopen(
+              \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+      endif
     endif
     if last
-      let stdout = s:fdopen(fd_stdout,
-            \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
-      let stdout.is_pty = is_pty
-            \ && (cnt == 0 || cnt == len(a:commands)-1)
-            \ && hstdout == 0
+      let stdout.is_pty = is_pty && hstdout == pts.fd
+      if hstdout == 0 || stdout.is_pty
+        let stdout = s:fdopen(stdout.is_pty ? ptm.fd : fd_stdout,
+              \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+      else
+        let stdout = s:closed_fdopen(
+              \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
+      endif
       if !exists(stderr)
+        let stderr.is_pty = is_pty && npipe == 2
         let stderr = s:closed_fdopen(
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       endif
-      let stderr.is_pty = is_pty
-            \ && (cnt == 0 || cnt == len(a:commands)-1)
-            \ && hstderr == 0
     endif
 
-    let hstdin = fd_stdout
     let cnt += 1
   endfor
+
+  if is_pty
+    if stdin.is_pty || stdout.is_pty
+      call ptm.close()
+    endif
+    call pts.close()
+  endif
+  if npipe == 3 && !empty(errsnk)
+    call errsnk.close()
+  endif
 
   let proc = {}
   let proc.pid_list = pid_list
@@ -1216,7 +1251,7 @@ function! s:quote_arg(arg)
         \ '"' . substitute(a:arg, '"', '\\"', 'g') . '"' : a:arg
 endfunction
 
-function! s:vp_pipe_open(npipe, hstdin, hstdout, hstderr, argv) "{{{
+function! s:vp_pipe_open(npipe, hstdin, hstdout, hstderr, hkeep, argv) "{{{
   if vimproc#util#is_windows()
     let cmdline = s:quote_arg(substitute(a:argv[0], '/', '\', 'g'))
     for arg in a:argv[1:]
@@ -1226,7 +1261,8 @@ function! s:vp_pipe_open(npipe, hstdin, hstdout, hstderr, argv) "{{{
           \ [a:npipe, a:hstdin, a:hstdout, a:hstderr, cmdline])
   else
     let [pid; fdlist] = s:libcall('vp_pipe_open',
-          \ [a:npipe, a:hstdin, a:hstdout, a:hstderr, len(a:argv)] + a:argv)
+          \ [a:npipe, a:hstdin, a:hstdout, a:hstderr,
+          \  a:hkeep[0], a:hkeep[1], len(a:argv)] + a:argv)
   endif
 
   if a:npipe != len(fdlist)
@@ -1372,11 +1408,8 @@ function! s:write_pgroup(str, ...) dict "{{{
   return nleft
 endfunction"}}}
 
-function! s:vp_pty_open(npipe, width, height, hstdin, hstdout, hstderr, argv)
-  let [pid; fdlist] = s:libcall('vp_pty_open',
-        \ [a:npipe, a:width, a:height,
-        \  a:hstdin, a:hstdout, a:hstderr, len(a:argv)] + a:argv)
-  return [pid] + fdlist
+function! s:vp_pty_open(width, height)
+  return s:libcall('vp_pty_open', [a:width, a:height])
 endfunction
 
 function! s:vp_pty_close() dict
