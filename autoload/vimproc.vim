@@ -468,7 +468,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
   let pid_list = []
   let npipe = a:npipe
   let is_pty = !vimproc#util#is_windows() && a:is_pty
-  let hkeep = [0, 0]
+  let hrefs = [0, 0, 0]
 
   if is_pty
     let [fd_ptm, fd_pts] = s:vp_pty_open(winwidth(0)-5, winheight(0))
@@ -476,7 +476,8 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
             \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
     let pts = s:fdopen(fd_pts,
             \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
-    let hkeep[0] = pts.fd
+    let hrefs[0] = ptm.fd
+    let hrefs[1] = pts.fd
   endif
   if npipe == 3
     let errsnk = {}
@@ -502,7 +503,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     elseif command.fd.stdout ==# '@-'
       let hstdout = -1
     elseif command.fd.stdout ==# '@2'
-      let hstdout = 2
+      let hstdout = !empty(errsnk) ? errsnk.fd : 2
     elseif s:is_pseudo_device(command.fd.stdout) 
       let hstdout = 0
     else
@@ -522,7 +523,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     elseif command.fd.stderr ==# '@-'
       let hstderr = -1
     elseif command.fd.stderr ==# '@1'
-      let hstderr = 1
+      let hstderr = is_pty ? pts.fd : 1
     elseif s:is_pseudo_device(command.fd.stderr) 
       let hstderr = 0
     else
@@ -543,7 +544,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
           \ 2 : npipe
 
     let pipe = s:vp_pipe_open(pty_npipe,
-          \ hstdin, hstdout, hstderr, hkeep, args)
+          \ hstdin, hstdout, hstderr, hrefs, args)
 
     if len(pipe) == 5
       let [pid, fd_stdin, fd_stdout, fd_stderr, fd_errsnk] = pipe
@@ -552,7 +553,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
         let errsnk = s:fdopen(fd_errsnk,
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
-        let hkeep[1] = errsnk.fd
+        let hrefs[2] = errsnk.fd
       endif
     else
       let [pid, fd_stdin, fd_stdout] = pipe
@@ -1251,7 +1252,7 @@ function! s:quote_arg(arg)
         \ '"' . substitute(a:arg, '"', '\\"', 'g') . '"' : a:arg
 endfunction
 
-function! s:vp_pipe_open(npipe, hstdin, hstdout, hstderr, hkeep, argv) "{{{
+function! s:vp_pipe_open(npipe, hstdin, hstdout, hstderr, hrefs, argv) "{{{
   if vimproc#util#is_windows()
     let cmdline = s:quote_arg(substitute(a:argv[0], '/', '\', 'g'))
     for arg in a:argv[1:]
@@ -1262,7 +1263,7 @@ function! s:vp_pipe_open(npipe, hstdin, hstdout, hstderr, hkeep, argv) "{{{
   else
     let [pid; fdlist] = s:libcall('vp_pipe_open',
           \ [a:npipe, a:hstdin, a:hstdout, a:hstderr,
-          \  a:hkeep[0], a:hkeep[1], len(a:argv)] + a:argv)
+          \ a:hrefs[0], a:hrefs[1], a:hrefs[2], len(a:argv)] + a:argv)
   endif
 
   if a:npipe != len(fdlist)
