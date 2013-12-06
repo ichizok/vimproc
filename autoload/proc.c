@@ -567,15 +567,15 @@ vp_proc_spawn(char *args)
         goto child_error;
     } else {
         /* parent */
-        if (hstdin >= 0 && fd[0][0] != conduit[0][0]) {
+        if (fd[0][0] > 0 && fd[0][0] != conduit[0][0]) {
             close(fd[0][0]);
         }
-        if (hstdout > 0 &&
+        if (fd[1][1] > 0 &&
                 fd[1][1] != conduit[0][0] && fd[1][1] != conduit[1][0]) {
             close(fd[1][1]);
         }
-        if (hstderr > 0 &&
-                fd[1][1] != conduit[0][0] && fd[2][1] != conduit[1][0]) {
+        if (fd[2][1] > 0 &&
+                fd[2][1] != conduit[0][0] && fd[2][1] != conduit[1][0]) {
             close(fd[2][1]);
         }
 
