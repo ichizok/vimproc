@@ -131,7 +131,7 @@ static vp_stack_t _result = VP_STACK_NULL;
 static void
 close_fds(int **fds, int i, int j)
 {
-    for (--i ; i >= 0; --i) {
+    for (--i; i >= 0; --i) {
         for (--j; j >= 0; --j) {
             if (fds[i][j] > 0)
                 close(fds[i][j]);
@@ -432,7 +432,7 @@ vp_proc_spawn(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
-    for (i = 0; i < sizeof(duct) / sizeof(**duct); ++i) {
+    for (i = 0; i < (int)(sizeof(duct) / sizeof(**duct)); ++i) {
         VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &duct[i / 2][i % 2]));
     }
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
@@ -482,22 +482,24 @@ vp_proc_spawn(char *args)
 #ifndef TIOCNOTTY
         setsid();
 #else
-        /* Ignore tty. */
-        char name[L_ctermid];
+        setpgid(0, 0);
 
-        if (ctermid(name)[0] != '\0') {
-            int tfd;
+        /* Detach from tty. */
+        {
+            char name[L_ctermid];
 
-            if ((tfd = open(name, O_RDONLY)) != -1) {
-                ioctl(tfd, TIOCNOTTY, NULL);
-                close(tfd);
+            if (ctermid(name)[0] != '\0') {
+                int tfd;
+
+                if ((tfd = open(name, O_RDONLY)) != -1) {
+                    ioctl(tfd, TIOCNOTTY, NULL);
+                    close(tfd);
+                }
             }
         }
-
-        setpgid(0, 0);
 #endif
 
-        close_fds(duct, 2, 2);
+        close_fds((int **)duct, 2, 2);
 
         if (fd[0][1] > 0) {
             close(fd[0][1]);
@@ -555,13 +557,13 @@ vp_proc_spawn(char *args)
         goto child_error;
     } else {
         /* parent */
-        if (hstdin >= 0 && fd[0][0] != duct[0]) {
+        if (hstdin >= 0 && fd[0][0] != duct[0][0]) {
             close(fd[0][0]);
         }
-        if (hstdout > 0 && fd[1][1] != duct[0] && fd[1][1] != duct[2]) {
+        if (hstdout > 0 && fd[1][1] != duct[0][0] && fd[1][1] != duct[1][0]) {
             close(fd[1][1]);
         }
-        if (hstderr > 0 && fd[1][1] != duct[0] && fd[2][1] != duct[2]) {
+        if (hstderr > 0 && fd[1][1] != duct[0][0] && fd[2][1] != duct[1][0]) {
             close(fd[2][1]);
         }
 
@@ -578,7 +580,7 @@ vp_proc_spawn(char *args)
 
     /* error */
 error:
-    close_fds(fd, 3, 2);
+    close_fds((int **)fd, 3, 2);
     return vp_stack_return_error(&_result, errfmt, strerror(errno));
 
 child_error:
@@ -609,7 +611,7 @@ const char *
 vp_pty_open(char *args)
 {
     vp_stack_t stack;
-    struct winsize ws = {0};
+    struct winsize ws = {0, 0, 0, 0};
     int master, slave;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
