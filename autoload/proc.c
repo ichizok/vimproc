@@ -421,7 +421,7 @@ vp_proc_spawn(char *args)
     int fd[3][2] = {{0}};
     pid_t pid;
     int dummy;
-    int duct[2][2];
+    int conduit[2][2];
     int i;
     char *errfmt;
 
@@ -432,8 +432,8 @@ vp_proc_spawn(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
-    for (i = 0; i < (int)(sizeof(duct) / sizeof(**duct)); ++i) {
-        VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &duct[i / 2][i % 2]));
+    for (i = 0; i < (int)(sizeof(conduit) / sizeof(**conduit)); ++i) {
+        VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[i / 2][i % 2]));
     }
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
@@ -499,8 +499,6 @@ vp_proc_spawn(char *args)
         }
 #endif
 
-        close_fds((int **)duct, 2, 2);
-
         if (fd[0][1] > 0) {
             close(fd[0][1]);
         }
@@ -511,9 +509,21 @@ vp_proc_spawn(char *args)
             close(fd[2][0]);
         }
 
+        if (hstdin > 0 && hstdin == conduit[0][0]) {
+            fd[0][0] = dup(fd[0][0]);
+        }
+        if (hstdout > 0 &&
+                (hstdout == conduit[0][0] || hstdout == conduit[1][0])) {
+            fd[1][1] = dup(fd[1][1]);
+        }
         if (hstdout == hstderr) {
             fd[2][1] = dup(fd[1][1]);
+        } else if (hstderr > 0 &&
+                (hstderr == conduit[0][0] || hstderr == conduit[1][0])) {
+            fd[2][1] = dup(fd[2][1]);
         }
+
+        close_fds((int **)conduit, 2, 2);
 
         if (fd[0][0] > 0) {
             if (dup2(fd[0][0], STDIN_FILENO) != STDIN_FILENO) {
@@ -557,13 +567,15 @@ vp_proc_spawn(char *args)
         goto child_error;
     } else {
         /* parent */
-        if (hstdin >= 0 && fd[0][0] != duct[0][0]) {
+        if (hstdin >= 0 && fd[0][0] != conduit[0][0]) {
             close(fd[0][0]);
         }
-        if (hstdout > 0 && fd[1][1] != duct[0][0] && fd[1][1] != duct[1][0]) {
+        if (hstdout > 0 &&
+                fd[1][1] != conduit[0][0] && fd[1][1] != conduit[1][0]) {
             close(fd[1][1]);
         }
-        if (hstderr > 0 && fd[1][1] != duct[0][0] && fd[2][1] != duct[1][0]) {
+        if (hstderr > 0 &&
+                fd[1][1] != conduit[0][0] && fd[2][1] != conduit[1][0]) {
             close(fd[2][1]);
         }
 

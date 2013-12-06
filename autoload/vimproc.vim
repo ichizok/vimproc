@@ -468,7 +468,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
   let pid_list = []
   let npipe = a:npipe
   let is_pty = !vimproc#util#is_windows() && a:is_pty
-  let duct = [0, 0, 0, 0]
+  let conduit = [0, 0, 0, 0]
 
   if is_pty
     let [fd_ptm, fd_pts] = s:vp_pty_open(winwidth(0)-5, winheight(0))
@@ -477,7 +477,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     let ptm.refcount = 2
     let pts = s:fdopen(fd_pts,
             \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
-    let duct[0:1] = [pts.fd, ptm.fd]
+    let conduit[0:1] = [pts.fd, ptm.fd]
   endif
   if npipe == 3
     let [fd_ein, fd_eout] = s:vp_pipe_open()
@@ -487,7 +487,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
           \ 'out' : s:fdopen(fd_eout,
           \   'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write'),
           \ }
-    let duct[2:3] = [errsink.in.fd, errsink.out.fd]
+    let conduit[2:3] = [errsink.in.fd, errsink.out.fd]
   endif
 
   let cnt = 0
@@ -547,7 +547,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
           \ 2 : npipe
 
     let pipe = s:vp_proc_spawn(pty_npipe,
-          \ hstdin, hstdout, hstderr, duct, args)
+          \ hstdin, hstdout, hstderr, conduit, args)
 
     if len(pipe) == 4
       let [pid, fd_stdin, fd_stdout, fd_stderr] = pipe
@@ -1255,7 +1255,7 @@ function! s:quote_arg(arg)
         \ '"' . substitute(a:arg, '"', '\\"', 'g') . '"' : a:arg
 endfunction
 
-function! s:vp_proc_spawn(npipe, hstdin, hstdout, hstderr, duct, argv) "{{{
+function! s:vp_proc_spawn(npipe, hstdin, hstdout, hstderr, conduit, argv) "{{{
   if vimproc#util#is_windows()
     let cmdline = s:quote_arg(substitute(a:argv[0], '/', '\', 'g'))
     for arg in a:argv[1:]
@@ -1266,7 +1266,7 @@ function! s:vp_proc_spawn(npipe, hstdin, hstdout, hstderr, duct, argv) "{{{
   else
     let [pid; fdlist] = s:libcall('vp_proc_spawn',
           \ [a:npipe, a:hstdin, a:hstdout, a:hstderr,
-          \ a:duct[0], a:duct[1], a:duct[2], a:duct[3], len(a:argv)] + a:argv)
+          \ a:conduit[0], a:conduit[1], a:conduit[2], a:conduit[3], len(a:argv)] + a:argv)
   endif
 
   if a:npipe != len(fdlist)
