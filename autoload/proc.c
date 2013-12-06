@@ -93,15 +93,16 @@ const char *vp_file_close(char *args);  /* [] (fd) */
 const char *vp_file_read(char *args);   /* [hd, eof] (fd, nr, timeout) */
 const char *vp_file_write(char *args);  /* [nleft] (fd, hd, timeout) */
 
-const char *vp_pipe_open(char *args);   /* [pid, [fd] * npipe]
-                                           (npipe, hstdin, hstdout, hstderr, argc, [argv]) */
+const char *vp_proc_spawn(char *args);
+/* [pid, [fd] * npipe]
+   (npipe, hstdin, hstdout, hstderr, 4 * href, argc, [argv]) */
+
+const char *vp_pipe_open(char *args);   /* [inpipe, outpipe] */
 const char *vp_pipe_close(char *args);  /* [] (fd) */
 const char *vp_pipe_read(char *args);   /* [hd, eof] (fd, nr, timeout) */
 const char *vp_pipe_write(char *args);  /* [nleft] (fd, hd, timeout) */
 
-const char *vp_pty_open(char *args);
-/* [pid, stdin, stdout, stderr]
-   (npipe, width, height,hstdin, hstdout, hstderr, argc, [argv]) */
+const char *vp_pty_open(char *args);    /* [master, slave] (width, height) */
 const char *vp_pty_close(char *args);   /* [] (fd) */
 const char *vp_pty_read(char *args);    /* [hd, eof] (fd, nr, timeout) */
 const char *vp_pty_write(char *args);   /* [nleft] (fd, hd, timeout) */
@@ -128,15 +129,13 @@ const char *vp_get_signals(char *args); /* [signals] () */
 static vp_stack_t _result = VP_STACK_NULL;
 
 static void
-close_fds(int fds[3][2])
+close_fds(int **fds, int i, int j)
 {
-    int i;
-
-    for (i = 0; i < 6; ++i) {
-        int fd = fds[i / 2][i % 2];
-
-        if (fd > 0)
-            close(fd);
+    for (--i ; i >= 0; --i) {
+        for (--j; j >= 0; --j) {
+            if (fds[i][j] > 0)
+                close(fds[i][j]);
+        }
     }
 }
 
@@ -346,6 +345,20 @@ vp_file_read(char *args)
 }
 
 const char *
+vp_pipe_open(char *args)
+{
+    int pfd[2];
+
+    if (pipe(pfd) < 0) {
+        return vp_stack_return_error(&_result, "pipe() error: %s", strerror(errno));
+    }
+
+    vp_stack_push_num(&_result, "%d", pfd[1]);
+    vp_stack_push_num(&_result, "%d", pfd[0]);
+    return vp_stack_return(&_result);
+}
+
+const char *
 vp_file_write(char *args)
 {
     vp_stack_t stack;
@@ -399,7 +412,7 @@ vp_file_write(char *args)
 }
 
 const char *
-vp_pipe_open(char *args)
+vp_proc_spawn(char *args)
 {
 #define VP_GOTO_ERROR(_fmt) do { errfmt = (_fmt); goto error; } while(0)
     vp_stack_t stack;
@@ -408,7 +421,8 @@ vp_pipe_open(char *args)
     int fd[3][2] = {{0}};
     pid_t pid;
     int dummy;
-    int hrefs[3];
+    int duct[2][2];
+    int i;
     char *errfmt;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
@@ -418,9 +432,9 @@ vp_pipe_open(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hrefs[0]));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hrefs[1]));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hrefs[2]));
+    for (i = 0; i < sizeof(duct) / sizeof(**duct); ++i) {
+        VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &duct[i / 2][i % 2]));
+    }
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
     if (hstdin != 0 && hstdin != 1) {
@@ -438,7 +452,7 @@ vp_pipe_open(char *args)
     if (hstdout != 0) {
         fd[1][1] = hstdout;
         fd[1][0] = 0;
-    } else if (hstdout) {
+    } else {
         if (pipe(fd[1]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
@@ -446,9 +460,13 @@ vp_pipe_open(char *args)
     if (hstderr != 0) {
         fd[2][1] = hstderr;
         fd[2][0] = 0;
-    } else if (npipe == 3 && hstderr == 0) {
+    } else if (npipe == 3 || (npipe == 2 && hstdout != 0)) {
         if (pipe(fd[2]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
+        }
+        if (npipe == 2 && hstdout != 0) {
+            fd[1][0] = fd[2][0];
+            fd[2][0] = 0;
         }
     }
 
@@ -461,13 +479,25 @@ vp_pipe_open(char *args)
         int i;
 
         /* Set process group. */
-        setpgid(0, 0);
+#ifndef TIOCNOTTY
+        setsid();
+#else
+        /* Ignore tty. */
+        char name[L_ctermid];
 
-        for (i = 0; i < sizeof(hrefs) / sizeof(*hrefs); ++i) {
-            if (hrefs[i] > 0) {
-                close(hrefs[i]);
+        if (ctermid(name)[0] != '\0') {
+            int tfd;
+
+            if ((tfd = open(name, O_RDONLY)) != -1) {
+                ioctl(tfd, TIOCNOTTY, NULL);
+                close(tfd);
             }
         }
+
+        setpgid(0, 0);
+#endif
+
+        close_fds(duct, 2, 2);
 
         if (fd[0][1] > 0) {
             close(fd[0][1]);
@@ -477,6 +507,10 @@ vp_pipe_open(char *args)
         }
         if (fd[2][0] > 0) {
             close(fd[2][0]);
+        }
+
+        if (hstdout == hstderr) {
+            fd[2][1] = dup(fd[1][1]);
         }
 
         if (fd[0][0] > 0) {
@@ -491,9 +525,7 @@ vp_pipe_open(char *args)
             if (dup2(fd[1][1], STDOUT_FILENO) != STDOUT_FILENO) {
                 goto child_error;
             }
-            if (fd[1][1] > 2) {
-                close(fd[1][1]);
-            }
+            close(fd[1][1]);
         } else if (fd[1][1] < 0) {
             close(STDOUT_FILENO);
         }
@@ -501,27 +533,9 @@ vp_pipe_open(char *args)
             if (dup2(fd[2][1], STDERR_FILENO) != STDERR_FILENO) {
                 goto child_error;
             }
-            if (fd[2][1] > 2) {
-                close(fd[2][1]);
-            }
+            close(fd[2][1]);
         } else if (fd[2][1] < 0) {
             close(STDERR_FILENO);
-        }
-
-        {
-#ifndef TIOCNOTTY
-            setsid();
-#else
-            /* Ignore tty. */
-            char name[L_ctermid];
-            if (ctermid(name)[0] != '\0') {
-                int tfd;
-                if ((tfd = open(name, O_RDONLY)) != -1) {
-                    ioctl(tfd, TIOCNOTTY, NULL);
-                    close(tfd);
-                }
-            }
-#endif
         }
 
         argv = malloc(sizeof(char *) * (argc+1));
@@ -541,13 +555,13 @@ vp_pipe_open(char *args)
         goto child_error;
     } else {
         /* parent */
-        if (hstdin >= 0 && fd[0][0] != hrefs[1]) {
+        if (hstdin >= 0 && fd[0][0] != duct[0]) {
             close(fd[0][0]);
         }
-        if (hstdout >= 0 && fd[1][1] != hrefs[1]) {
+        if (hstdout > 0 && fd[1][1] != duct[0] && fd[1][1] != duct[2]) {
             close(fd[1][1]);
         }
-        if (hstderr > 0 && fd[2][1] != hrefs[2]) {
+        if (hstderr > 0 && fd[1][1] != duct[0] && fd[2][1] != duct[2]) {
             close(fd[2][1]);
         }
 
@@ -556,7 +570,6 @@ vp_pipe_open(char *args)
         vp_stack_push_num(&_result, "%d", fd[1][0]);
         if (npipe == 3) {
             vp_stack_push_num(&_result, "%d", fd[2][0]);
-            vp_stack_push_num(&_result, "%d", fd[2][1]);
         }
         return vp_stack_return(&_result);
     }
@@ -565,7 +578,7 @@ vp_pipe_open(char *args)
 
     /* error */
 error:
-    close_fds(fd);
+    close_fds(fd, 3, 2);
     return vp_stack_return_error(&_result, errfmt, strerror(errno));
 
 child_error:

@@ -70,8 +70,9 @@ EXPORT const char *vp_file_close(char *args);  /* [] (fd) */
 EXPORT const char *vp_file_read(char *args);   /* [hd, eof] (fd, nr, timeout) */
 EXPORT const char *vp_file_write(char *args);  /* [nleft] (fd, hd, timeout) */
 
-EXPORT const char *vp_pipe_open(char *args);   /* [pid, [fd] * npipe]
+EXPORT const char *vp_proc_spawn(char *args);  /* [pid, [fd] * npipe]
                                                   (npipe, argc, [argv]) */
+EXPORT const char *vp_pipe_open(char *args);   /* [] */
 EXPORT const char *vp_pipe_close(char *args);  /* [] (fd) */
 EXPORT const char *vp_pipe_read(char *args);   /* [hd, eof] (fd, nr, timeout) */
 EXPORT const char *vp_pipe_write(char *args);  /* [nleft] (fd, hd, timeout) */
@@ -369,7 +370,7 @@ vp_file_write(char *args)
  * http://support.microsoft.com/kb/190351/
  */
 const char *
-vp_pipe_open(char *args)
+vp_proc_spawn(char *args)
 {
     vp_stack_t stack;
     int npipe, hstdin, hstderr, hstdout;
@@ -517,6 +518,12 @@ vp_pipe_open(char *args)
         vp_stack_push_num(&_result, "%d", hstderr ?
                 0 : _open_osfhandle((size_t)hErrorRead, _O_RDONLY));
     return vp_stack_return(&_result);
+}
+
+const char *
+vp_pipe_open(char *args)
+{
+    return "vp_pipe_open() is not available";
 }
 
 const char *
