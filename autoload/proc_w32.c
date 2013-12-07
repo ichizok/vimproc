@@ -471,11 +471,11 @@ vp_proc_spawn(char *args)
             CloseHandle(hInputWrite);
         if (hOutputRead != INVALID_HANDLE_VALUE)
             CloseHandle(hOutputRead);
-        if (hstdout != errsink[1] && hOutputWrite != INVALID_HANDLE_VALUE)
+        if (hstdout != errsink[0] && hOutputWrite != INVALID_HANDLE_VALUE)
             CloseHandle(hOutputWrite);
         if (hErrorRead != INVALID_HANDLE_VALUE)
             CloseHandle(hErrorRead);
-        if (hstderr != errsink[1] && hErrorWrite != INVALID_HANDLE_VALUE)
+        if (hstderr != errsink[0] && hErrorWrite != INVALID_HANDLE_VALUE)
             CloseHandle(hErrorWrite);
         return vp_stack_return_error(&_result, "CreateProcess() error: %s %s",
                 lasterror());
@@ -488,10 +488,10 @@ vp_proc_spawn(char *args)
     if (!CloseHandle(hInputRead))
         return vp_stack_return_error(&_result, "CloseHandle() error: %s",
                 lasterror());
-    if (hstdout != errsink[1] && !CloseHandle(hOutputWrite))
+    if (hstdout != errsink[0] && !CloseHandle(hOutputWrite))
         return vp_stack_return_error(&_result, "CloseHandle() error: %s",
                 lasterror());
-    if (hstderr != errsink[1] && !CloseHandle(hErrorWrite))
+    if (hstderr != errsink[0] && !CloseHandle(hErrorWrite))
         return vp_stack_return_error(&_result, "CloseHandle() error: %s",
                 lasterror());
 
@@ -529,8 +529,8 @@ vp_pipe_open(char *args)
         return vp_stack_return_error(&_result, "CloseHandle() error: %s",
                 lasterror());
 
-    vp_stack_push_num(&_result, "%d", _open_osfhandle(hPipeRead, _O_RDONLY));
     vp_stack_push_num(&_result, "%d", _open_osfhandle(hPipeWrite, _O_TEXT));
+    vp_stack_push_num(&_result, "%d", _open_osfhandle(hPipeRead, _O_RDONLY));
     return vp_stack_return(&_result);
 }
 

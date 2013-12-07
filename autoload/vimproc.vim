@@ -509,7 +509,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       let hstdout = is_pty ? pts.fd : 0
     elseif command.fd.stdout[0] ==# '@'
       let hstdout = command.fd.stdout[1] ==# '-' ? -1
-            \ : npipe == 3 ? errsink.out.fd : 0
+            \ : npipe == 3 ? errsink.in.fd : 0
     elseif s:is_pseudo_device(command.fd.stdout) 
       let hstdout = 0
     else
@@ -524,7 +524,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     endif
 
     if s:is_pseudo_device(command.fd.stderr) 
-      let hstderr = npipe == 3 ? errsink.out.fd
+      let hstderr = npipe == 3 ? errsink.in.fd
             \ : (is_pty && npipe == 2) ? pts.fd : 0
     elseif command.fd.stderr[0] ==# '@'
       let hstderr = command.fd.stderr[1] ==# '-' ? -1
@@ -575,7 +575,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       endif
       let stderr.is_pty = is_pty && npipe == 2
       if npipe == 3
-        let stderr = errsink.in
+        let stderr = errsink.out
       else
         let stderr = s:closed_fdopen(
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
@@ -593,7 +593,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
   endif
   call pts.close()
   if npipe == 3
-    call errsink.out.close()
+    call errsink.in.close()
   endif
 
   let proc = {}
