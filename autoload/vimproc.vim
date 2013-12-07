@@ -1306,21 +1306,19 @@ function! s:vp_pgroup_close() dict
 endfunction
 
 function! s:vp_pipe_read(number, timeout) dict
-  if self.fd == 0
-    return ['', 1]
+  if self.fd > 0
+    let [hd, eof] = s:libcall('vp_pipe_read', [self.fd, a:number, a:timeout])
+    return [hd, eof]
   endif
-
-  let [hd, eof] = s:libcall('vp_pipe_read', [self.fd, a:number, a:timeout])
-  return [hd, eof]
+  return ['', 1]
 endfunction
 
 function! s:vp_pipe_write(hd, timeout) dict
-  if self.fd == 0
-    return 0
+  if self.fd > 0
+    let [nleft] = s:libcall('vp_pipe_write', [self.fd, a:hd, a:timeout])
+    return nleft
   endif
-
-  let [nleft] = s:libcall('vp_pipe_write', [self.fd, a:hd, a:timeout])
-  return nleft
+  return 0
 endfunction
 
 function! s:read_pipes(...) dict "{{{
@@ -1433,13 +1431,19 @@ function! s:vp_pty_close() dict
 endfunction
 
 function! s:vp_pty_read(number, timeout) dict
-  let [hd, eof] = s:libcall('vp_pty_read', [self.fd, a:number, a:timeout])
-  return [hd, eof]
+  if self.fd > 0
+    let [hd, eof] = s:libcall('vp_pty_read', [self.fd, a:number, a:timeout])
+    return [hd, eof]
+  endif
+  return ['', 1]
 endfunction
 
 function! s:vp_pty_write(hd, timeout) dict
-  let [nleft] = s:libcall('vp_pty_write', [self.fd, a:hd, a:timeout])
-  return nleft
+  if self.fd > 0
+    let [nleft] = s:libcall('vp_pty_write', [self.fd, a:hd, a:timeout])
+    return nleft
+  endif
+  return 0
 endfunction
 
 function! s:vp_get_winsize() dict
@@ -1594,15 +1598,19 @@ function! s:vp_socket_close() dict
 endfunction
 
 function! s:vp_socket_read(number, timeout) dict
-  let [hd, eof] = s:libcall('vp_socket_read',
-        \ [self.fd, a:number, a:timeout])
-  return [hd, eof]
+  if self.fd > 0
+    let [hd, eof] = s:libcall('vp_socket_read', [self.fd, a:number, a:timeout])
+    return [hd, eof]
+  endif
+  return ['', 1]
 endfunction
 
 function! s:vp_socket_write(hd, timeout) dict
-  let [nleft] = s:libcall('vp_socket_write',
-        \ [self.fd, a:hd, a:timeout])
-  return nleft
+  if self.fd > 0
+    let [nleft] = s:libcall('vp_socket_write', [self.fd, a:hd, a:timeout])
+    return nleft
+  endif
+  return 0
 endfunction
 
 function! s:vp_host_exists(host)
