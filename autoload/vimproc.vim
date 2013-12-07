@@ -470,15 +470,6 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
   let is_pty = !vimproc#util#is_windows() && a:is_pty
   let conduit = [0, 0, 0, 0]
 
-  if is_pty
-    let [fd_ptm, fd_pts] = s:vp_pty_open(winwidth(0)-5, winheight(0))
-    let ptm = s:fdopen(fd_ptm,
-            \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
-    let ptm.refcount = 2
-    let pts = s:fdopen(fd_pts,
-            \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
-    let conduit[0:1] = [pts.fd, ptm.fd]
-  endif
   if npipe == 3
     let [fd_ein, fd_eout] = s:vp_pipe_open()
     let errsink = {
@@ -487,7 +478,16 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
           \ 'out' : s:fdopen(fd_eout,
           \   'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write'),
           \ }
-    let conduit[2:3] = [errsink.in.fd, errsink.out.fd]
+    let conduit[0:1] = [errsink.in.fd, errsink.out.fd]
+  endif
+  if is_pty
+    let [fd_ptm, fd_pts] = s:vp_pty_open(winwidth(0)-5, winheight(0))
+    let ptm = s:fdopen(fd_ptm,
+            \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
+    let ptm.refcount = 2
+    let pts = s:fdopen(fd_pts,
+            \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
+    let conduit[2:3] = [ptm.fd, pts.fd]
   endif
 
   let cnt = 0
@@ -509,7 +509,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       let hstdout = is_pty ? pts.fd : 0
     elseif command.fd.stdout[0] ==# '@'
       let hstdout = command.fd.stdout[1] ==# '-' ? -1
-            \ : npipe == 3 ? errsink.in.fd : 0
+            \ : npipe == 3 ? errsink.out.fd : 0
     elseif s:is_pseudo_device(command.fd.stdout) 
       let hstdout = 0
     else
@@ -524,7 +524,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     endif
 
     if s:is_pseudo_device(command.fd.stderr) 
-      let hstderr = npipe == 3 ? errsink.in.fd
+      let hstderr = npipe == 3 ? errsink.out.fd
             \ : (is_pty && npipe == 2) ? pts.fd : 0
     elseif command.fd.stderr[0] ==# '@'
       let hstderr = command.fd.stderr[1] ==# '-' ? -1
@@ -575,7 +575,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       endif
       let stderr.is_pty = is_pty && npipe == 2
       if npipe == 3
-        let stderr = errsink.out
+        let stderr = errsink.in
       else
         let stderr = s:closed_fdopen(
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
@@ -593,7 +593,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
   endif
   call pts.close()
   if npipe == 3
-    call errsink.in.close()
+    call errsink.out.close()
   endif
 
   let proc = {}
@@ -1259,10 +1259,10 @@ function! s:vp_proc_spawn(npipe, is_pty, hstdin, hstdout, hstderr, conduit, argv
       let cmdline .= ' ' . s:quote_arg(arg)
     endfor
     let [pid; fdlist] = s:libcall('vp_proc_spawn',
-          \ [a:npipe, a:hstdin, a:hstdout, a:hstderr, cmdline])
+          \ [a:npipe, a:hstdin, a:hstdout, a:hstderr, a:conduit[0], a:conduit[1], cmdline])
   else
-    let [pid; fdlist] = s:libcall('vp_proc_spawn',
-          \ [a:npipe, a:is_pty, a:hstdin, a:hstdout, a:hstderr,
+    let [pid; fdlist] = s:libcall('vp_proc_spawn', [
+          \ a:npipe, a:is_pty, a:hstdin, a:hstdout, a:hstderr,
           \ a:conduit[0], a:conduit[1], a:conduit[2], a:conduit[3], len(a:argv)] + a:argv)
   endif
 

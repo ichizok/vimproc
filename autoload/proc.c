@@ -129,13 +129,11 @@ const char *vp_get_signals(char *args); /* [signals] () */
 static vp_stack_t _result = VP_STACK_NULL;
 
 static void
-close_fds(int **fds, int i, int j)
+close_fds(int *fds, int i, int j)
 {
-    for (--i; i >= 0; --i) {
-        for (--j; j >= 0; --j) {
-            if (fds[i][j] > 0)
-                close(fds[i][j]);
-        }
+    for (i = i * j - 1; i >= 0; --i) {
+        if (fds[i] > 0)
+            close(fds[i]);
     }
 }
 
@@ -353,8 +351,8 @@ vp_pipe_open(char *args)
         return vp_stack_return_error(&_result, "pipe() error: %s", strerror(errno));
     }
 
-    vp_stack_push_num(&_result, "%d", pfd[1]);
     vp_stack_push_num(&_result, "%d", pfd[0]);
+    vp_stack_push_num(&_result, "%d", pfd[1]);
     return vp_stack_return(&_result);
 }
 
@@ -420,7 +418,8 @@ vp_proc_spawn(char *args)
     int npipe, hstdin, hstderr, hstdout;
     int argc;
     int fd[3][2] = {{0}};
-    int conduit[2][2];
+    int errsink[2]; /* errsink[in], errsink[out] */
+    int pty[2]; /* pty[master], pty[slave] */
     int is_pty;
     int dummy;
     char *errfmt;
@@ -433,10 +432,10 @@ vp_proc_spawn(char *args)
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[0][0]));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[0][1]));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[1][0]));
-    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[1][1]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &errsink[0]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &errsink[1]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &pty[0]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &pty[1]));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
     if (hstdin < 0 || hstdin > 1) {
@@ -465,14 +464,12 @@ vp_proc_spawn(char *args)
     if (hstderr != 0) {
         fd[2][1] = hstderr;
         fd[2][0] = 0;
-    } else if (npipe == 3 || (npipe == 2 && hstdout != 0)) {
+    } else if (hstdout != 0 && hstdout != pty[1]) {
         if (pipe(fd[2]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
         }
-        if (npipe == 2 && hstdout != 0) {
-            fd[1][0] = fd[2][0];
-            fd[2][0] = 0;
-        }
+        fd[1][0] = fd[2][0];
+        fd[2][0] = 0;
     }
 
     pid = fork();
@@ -514,21 +511,22 @@ vp_proc_spawn(char *args)
             close(fd[2][0]);
         }
 
-        if (hstdin > 0 && hstdin == conduit[0][0]) {
+        if (hstdin > 0 && hstdin == pty[1]) {
             fd[0][0] = dup(fd[0][0]);
         }
         if (hstdout > 0 &&
-                (hstdout == conduit[0][0] || hstdout == conduit[1][0])) {
+                (hstdout == pty[1] || hstdout == errsink[1])) {
             fd[1][1] = dup(fd[1][1]);
         }
         if (hstdout == hstderr) {
             fd[2][1] = dup(fd[1][1]);
         } else if (hstderr > 0 &&
-                (hstderr == conduit[0][0] || hstderr == conduit[1][0])) {
+                (hstderr == pty[1] || hstderr == errsink[1])) {
             fd[2][1] = dup(fd[2][1]);
         }
 
-        close_fds((int **)conduit, 2, 2);
+        close_fds((int *)errsink, 1, 2);
+        close_fds((int *)pty, 1, 2);
 
 #define MANIP_FD(_fd, _fno)                      \
         if ((_fd) > 0) {                         \
@@ -561,15 +559,15 @@ vp_proc_spawn(char *args)
         goto child_error;
     } else {
         /* parent */
-        if (fd[0][0] > 0 && fd[0][0] != conduit[0][0]) {
+        if (fd[0][0] > 0 && fd[0][0] != pty[1]) {
             close(fd[0][0]);
         }
         if (fd[1][1] > 0 &&
-                fd[1][1] != conduit[0][0] && fd[1][1] != conduit[1][0]) {
+                fd[1][1] != pty[1] && fd[1][1] != errsink[1]) {
             close(fd[1][1]);
         }
         if (fd[2][1] > 0 &&
-                fd[2][1] != conduit[0][0] && fd[2][1] != conduit[1][0]) {
+                fd[2][1] != pty[1] && fd[2][1] != errsink[1]) {
             close(fd[2][1]);
         }
 
@@ -586,7 +584,7 @@ vp_proc_spawn(char *args)
 
     /* error */
 error:
-    close_fds((int **)fd, 3, 2);
+    close_fds((int *)fd, 3, 2);
     return vp_stack_return_error(&_result, errfmt, strerror(errno));
 
 child_error:
