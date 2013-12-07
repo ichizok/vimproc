@@ -441,7 +441,7 @@ vp_proc_spawn(char *args)
                              GetCurrentProcess(),
                              &hOutputRead,
                              0,
-                             TRUE,
+                             FALSE,
                              DUPLICATE_SAME_ACCESS))
             return vp_stack_return_error(&_result, "DuplicateHandle() error: %s",
                     lasterror());
@@ -455,21 +455,8 @@ vp_proc_spawn(char *args)
         hErrorWrite = (HANDLE)_get_osfhandle(hstderr);
     } else if (hstdout != 0) {
         /* Create pipe. */
-        if (!CreatePipe(&hErrorRead, &hErrorWrite, &sa, 0))
+        if (!CreatePipe(&hOutputRead, &hErrorWrite, &sa, 0))
             return vp_stack_return_error(&_result, "CreatePipe() error: %s",
-                    lasterror());
-
-        if (!DuplicateHandle(GetCurrentProcess(),
-                             hErrorRead,
-                             GetCurrentProcess(),
-                             &hOutputRead,
-                             0,
-                             TRUE,
-                             DUPLICATE_SAME_ACCESS))
-            return vp_stack_return_error(&_result, "DuplicateHandle() error: %s",
-                    lasterror());
-        if (!CloseHandle(hErrorRead))
-            return vp_stack_return_error(&_result, "CloseHandle() error: %s",
                     lasterror());
     } else {
         if (!DuplicateHandle(GetCurrentProcess(),
@@ -550,12 +537,12 @@ vp_pipe_open(char *args)
                 lasterror());
 
     if (!DuplicateHandle(GetCurrentProcess(),
-                hErrorReadTmp,
-                GetCurrentProcess(),
-                &hErrorRead,
-                0,
-                TRUE,
-                DUPLICATE_SAME_ACCESS))
+                         hErrorReadTmp,
+                         GetCurrentProcess(),
+                         &hErrorRead,
+                         0,
+                         FALSE,
+                         DUPLICATE_SAME_ACCESS))
         return vp_stack_return_error(&_result, "DuplicateHandle() error: %s",
                 lasterror());
 
