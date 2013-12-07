@@ -416,30 +416,35 @@ vp_proc_spawn(char *args)
 {
 #define VP_GOTO_ERROR(_fmt) do { errfmt = (_fmt); goto error; } while(0)
     vp_stack_t stack;
+    pid_t pid;
     int npipe, hstdin, hstderr, hstdout;
     int argc;
     int fd[3][2] = {{0}};
-    pid_t pid;
-    int dummy;
     int conduit[2][2];
-    int i;
+    int is_pty;
+    int dummy;
     char *errfmt;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &npipe));
     if (npipe != 2 && npipe != 3)
         return vp_stack_return_error(&_result, "npipe range error. wrong pipes.");
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &is_pty));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdin));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstdout));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &hstderr));
-    for (i = 0; i < (int)(sizeof(conduit) / sizeof(**conduit)); ++i) {
-        VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[i / 2][i % 2]));
-    }
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[0][0]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[0][1]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[1][0]));
+    VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &conduit[1][1]));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &argc));
 
-    if (hstdin != 0 && hstdin != 1) {
+    if (hstdin < 0 || hstdin > 1) {
         fd[0][0] = hstdin;
         fd[0][1] = 0;
+        if (hstdin < -1) {
+            close(-hstdin);
+        }
     } else {
         if (pipe(fd[0]) < 0) {
             VP_GOTO_ERROR("pipe() error: %s");
@@ -479,13 +484,13 @@ vp_proc_spawn(char *args)
         int i;
 
         /* Set process group. */
-#ifndef TIOCNOTTY
-        setsid();
-#else
         setpgid(0, 0);
 
-        /* Detach from tty. */
-        {
+        /* Detach from tty if notty is required. */
+        if (!is_pty) {
+#ifndef TIOCNOTTY
+            setsid();
+#else
             char name[L_ctermid];
 
             if (ctermid(name)[0] != '\0') {
@@ -496,8 +501,8 @@ vp_proc_spawn(char *args)
                     close(tfd);
                 }
             }
-        }
 #endif
+        }
 
         if (fd[0][1] > 0) {
             close(fd[0][1]);
@@ -525,30 +530,19 @@ vp_proc_spawn(char *args)
 
         close_fds((int **)conduit, 2, 2);
 
-        if (fd[0][0] > 0) {
-            if (dup2(fd[0][0], STDIN_FILENO) != STDIN_FILENO) {
-                goto child_error;
-            }
-            close(fd[0][0]);
-        } else if (fd[0][0] < 0) {
-            close(fd[0][0] == -1 ? STDIN_FILENO : -fd[0][0]);
+#define MANIP_FD(_fd, _fno)                      \
+        if ((_fd) > 0) {                         \
+            if (dup2((_fd), (_fno)) != (_fno)) { \
+                goto child_error;                \
+            }                                    \
+            close((_fd));                        \
+        } else if ((_fd) < 0) {                  \
+            close((_fno));                       \
         }
-        if (fd[1][1] > 0) {
-            if (dup2(fd[1][1], STDOUT_FILENO) != STDOUT_FILENO) {
-                goto child_error;
-            }
-            close(fd[1][1]);
-        } else if (fd[1][1] < 0) {
-            close(STDOUT_FILENO);
-        }
-        if (fd[2][1] > 0) {
-            if (dup2(fd[2][1], STDERR_FILENO) != STDERR_FILENO) {
-                goto child_error;
-            }
-            close(fd[2][1]);
-        } else if (fd[2][1] < 0) {
-            close(STDERR_FILENO);
-        }
+        MANIP_FD(fd[0][0], STDIN_FILENO);
+        MANIP_FD(fd[1][1], STDOUT_FILENO);
+        MANIP_FD(fd[2][1], STDERR_FILENO);
+#undef MANIP_FD
 
         argv = malloc(sizeof(char *) * (argc+1));
         if (argv == NULL) {

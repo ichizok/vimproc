@@ -542,11 +542,8 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
 
     let args = s:convert_args(command.args)
     let command_name = fnamemodify(args[0], ':t:r')
-    let pty_npipe = exists('g:vimproc#popen2_commands')
-          \ && get(g:vimproc#popen2_commands, command_name, 0) != 0 ?
-          \ 2 : npipe
 
-    let pipe = s:vp_proc_spawn(pty_npipe,
+    let pipe = s:vp_proc_spawn(npipe, is_pty,
           \ hstdin, hstdout, hstderr, conduit, args)
 
     if len(pipe) == 4
@@ -1255,7 +1252,7 @@ function! s:quote_arg(arg)
         \ '"' . substitute(a:arg, '"', '\\"', 'g') . '"' : a:arg
 endfunction
 
-function! s:vp_proc_spawn(npipe, hstdin, hstdout, hstderr, conduit, argv) "{{{
+function! s:vp_proc_spawn(npipe, is_pty, hstdin, hstdout, hstderr, conduit, argv) "{{{
   if vimproc#util#is_windows()
     let cmdline = s:quote_arg(substitute(a:argv[0], '/', '\', 'g'))
     for arg in a:argv[1:]
@@ -1265,7 +1262,7 @@ function! s:vp_proc_spawn(npipe, hstdin, hstdout, hstderr, conduit, argv) "{{{
           \ [a:npipe, a:hstdin, a:hstdout, a:hstderr, cmdline])
   else
     let [pid; fdlist] = s:libcall('vp_proc_spawn',
-          \ [a:npipe, a:hstdin, a:hstdout, a:hstderr,
+          \ [a:npipe, a:is_pty, a:hstdin, a:hstdout, a:hstderr,
           \ a:conduit[0], a:conduit[1], a:conduit[2], a:conduit[3], len(a:argv)] + a:argv)
   endif
 
