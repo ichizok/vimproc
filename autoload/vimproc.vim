@@ -484,7 +484,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     let [fd_ptm, fd_pts] = s:vp_pty_open(winwidth(0)-5, winheight(0))
     let ptm = s:fdopen(fd_ptm,
             \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
-    let ptm.refcount = 2
+    let ptm.__shared = { 'count' : 2 }
     let pts = s:fdopen(fd_pts,
             \ 'vp_pty_close', 'vp_pty_read', 'vp_pty_write')
     let conduit[2:3] = [ptm.fd, pts.fd]
@@ -555,31 +555,31 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     call add(pid_list, pid)
 
     if cnt == 0
-      let stdin.is_pty = is_pty && hstdin == pts.fd
-      if hstdin == 0
-        let stdin = stdin.is_pty ? ptm : s:fdopen(fd_stdin,
+      if hstdin == 0 || hstdin == pts.fd
+        let stdin = is_pty ? copy(ptm) : s:fdopen(fd_stdin,
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       else
         let stdin = s:closed_fdopen(
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       endif
+      let stdin.is_pty = is_pty && hstdin == pts.fd
     endif
     if is_last
-      let stdout.is_pty = is_pty && hstdout == pts.fd
-      if hstdout == 0
-        let stdout = stdout.is_pty ? ptm : s:fdopen(fd_stdout,
+      if hstdout == 0 || hstdout == pts.fd || hstderr == 0
+        let stdout = is_pty ? copy(ptm) : s:fdopen(fd_stdout,
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       else
         let stdout = s:closed_fdopen(
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       endif
-      let stderr.is_pty = is_pty && npipe == 2
+      let stdout.is_pty = is_pty && hstdout == pts.fd
       if npipe == 3
         let stderr = errsink.out
       else
         let stderr = s:closed_fdopen(
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       endif
+      let stderr.is_pty = is_pty && npipe == 2
     endif
 
     let cnt += 1
@@ -1228,8 +1228,8 @@ endfunction
 
 function! s:vp_file_close() dict
   if self.fd > 0
-    if has_key(self, 'refcount') && self.refcount > 1
-      let self.refcount -= 1
+    if has_key(self, '__shared') && self.__shared.count > 1
+      let self.__shared.count -= 1
       return
     endif
     call s:libcall('vp_file_close', [self.fd])
@@ -1282,8 +1282,8 @@ endfunction
 function! s:vp_pipe_close() dict
   " echomsg 'close:'.self.fd
   if self.fd > 0
-    if has_key(self, 'refcount') && self.refcount > 1
-      let self.refcount -= 1
+    if has_key(self, '__shared.count') && self.__shared.count > 1
+      let self.__shared.count -= 1
       return
     endif
     call s:libcall('vp_pipe_close', [self.fd])
@@ -1421,8 +1421,8 @@ endfunction
 
 function! s:vp_pty_close() dict
   if self.fd > 0
-    if has_key(self, 'refcount') && self.refcount > 1
-      let self.refcount -= 1
+    if has_key(self, '__shared.count') && self.__shared.count > 1
+      let self.__shared.count -= 1
       return
     endif
     call s:libcall('vp_pty_close', [self.fd])
