@@ -529,6 +529,8 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     elseif command.fd.stderr[0] ==# '@'
       let hstderr = command.fd.stderr[1] ==# '-' ? -1
             \ : (is_pty && is_last) ? pts.fd : 0
+    elseif command.fd.stderr ==# command.fd.stdout
+      let hstderr = hstdout
     else
       let mode = 'O_WRONLY | O_CREAT'
       if command.fd.stderr[0] ==# '>'

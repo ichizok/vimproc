@@ -518,7 +518,8 @@ vp_proc_spawn(char *args)
                 && (hstdout == pty[1] || hstdout == errsink[0])) {
             fd[1][1] = dup(fd[1][1]);
         }
-        if (hstderr == 0 && (hstdout == 0 || hstdout == pty[1])) {
+        if ((hstderr == 0 && (hstdout == 0 || hstdout == pty[1]))
+                || (hstderr > 0 && hstderr == hstdout)) {
             fd[2][1] = dup(fd[1][1]);
         } else if (hstderr > 0
                 && (hstderr == pty[1] || hstderr == errsink[0])) {
