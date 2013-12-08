@@ -510,7 +510,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     elseif command.fd.stdout[0] ==# '@'
       let hstdout = command.fd.stdout[1] ==# '-' ? -1
             \ : npipe == 3 ? errsink.in.fd : 0
-    elseif s:is_pseudo_device(command.fd.stdout) 
+    elseif s:is_pseudo_device(command.fd.stdout)
       let hstdout = 0
     else
       let mode = 'O_WRONLY | O_CREAT'
@@ -523,7 +523,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       let hstdout = vimproc#fopen(command.fd.stdout, mode).fd
     endif
 
-    if s:is_pseudo_device(command.fd.stderr) 
+    if s:is_pseudo_device(command.fd.stderr)
       let hstderr = npipe == 3 ? errsink.in.fd
             \ : (is_pty && npipe == 2) ? pts.fd : 0
     elseif command.fd.stderr[0] ==# '@'
