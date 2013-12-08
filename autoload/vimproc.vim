@@ -498,7 +498,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     if command.fd.stdin ==# '' && cnt == 0
       let hstdin = is_pty ? pts.fd : 0
     elseif command.fd.stdin ==# '@-'
-      let hstdin = cnt != 0 && fd_stdout == 0 ? -1 : -fd_stdout
+      let hstdin = cnt == 0 || fd_stdout == 0 ? -1 : -fd_stdout
     elseif command.fd.stdin !=# ''
       let hstdin = vimproc#fopen(command.fd.stdin, 'O_RDONLY').fd
     else
