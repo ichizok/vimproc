@@ -674,10 +674,10 @@ function! s:parse_redirection(script) "{{{
       " Input redirection.
       let skip = matchend(a:script, '^\%(&-\)\?\s*', i+1)
       let in = matchstr(a:script, '^\f*', skip)
-      
+
       let fd[0] = a:script[i+1 : i+2] ==# '&-' ? '@-' : in
       let i = skip + len(in)
-    elseif a:script[i :] =~# '^[123]\?>' 
+    elseif a:script[i :] =~# '^[123]\?>'
       " Output redirection.
       if a:script[i] ==# '>'
         let n = 1
@@ -702,8 +702,6 @@ function! s:parse_redirection(script) "{{{
           let fd[1] = out
           let fd[2] = out
         endif
-      elseif a:script[i] ==# '-'
-        let 
       elseif a:script[i] ==# '>'
         let fd[n] = '>' . out
       else
