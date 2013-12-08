@@ -514,14 +514,14 @@ vp_proc_spawn(char *args)
         if (hstdin > 0 && hstdin == pty[1]) {
             fd[0][0] = dup(fd[0][0]);
         }
-        if (hstdout > 0 &&
-                (hstdout == pty[1] || hstdout == errsink[0])) {
+        if (hstdout > 0
+                && (hstdout == pty[1] || hstdout == errsink[0])) {
             fd[1][1] = dup(fd[1][1]);
         }
-        if (hstdout == hstderr) {
+        if (hstderr == 0 && (hstdout == 0 || hstdout == pty[1])) {
             fd[2][1] = dup(fd[1][1]);
-        } else if (hstderr > 0 &&
-                (hstderr == pty[1] || hstderr == errsink[0])) {
+        } else if (hstderr > 0
+                && (hstderr == pty[1] || hstderr == errsink[0])) {
             fd[2][1] = dup(fd[2][1]);
         }
 
@@ -562,12 +562,12 @@ vp_proc_spawn(char *args)
         if (fd[0][0] > 0 && fd[0][0] != pty[1]) {
             close(fd[0][0]);
         }
-        if (fd[1][1] > 0 &&
-                fd[1][1] != pty[1] && fd[1][1] != errsink[0]) {
+        if (fd[1][1] > 0
+                && fd[1][1] != pty[1] && fd[1][1] != errsink[0]) {
             close(fd[1][1]);
         }
-        if (fd[2][1] > 0 &&
-                fd[2][1] != pty[1] && fd[2][1] != errsink[0]) {
+        if (fd[2][1] > 0
+                && fd[2][1] != pty[1] && fd[2][1] != errsink[0]) {
             close(fd[2][1]);
         }
 

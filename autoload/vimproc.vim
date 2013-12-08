@@ -528,7 +528,7 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
             \ : (is_pty && npipe == 2) ? pts.fd : 0
     elseif command.fd.stderr[0] ==# '@'
       let hstderr = command.fd.stderr[1] ==# '-' ? -1
-            \ : is_pty ? pts.fd : 0
+            \ : (is_pty && is_last) ? pts.fd : 0
     else
       let mode = 'O_WRONLY | O_CREAT'
       if command.fd.stderr[0] ==# '>'
@@ -565,7 +565,8 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
       let stdin.is_pty = is_pty && hstdin == pts.fd
     endif
     if is_last
-      if hstdout == 0 || hstdout == pts.fd || hstderr == 0
+      if hstdout == 0 || (is_pty && hstdout == pts.fd)
+            \ || hstderr == 0 || (is_pty && hstderr == pts.fd)
         let stdout = is_pty ? copy(ptm) : s:fdopen(fd_stdout,
               \ 'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write')
       else
@@ -585,15 +586,17 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
     let cnt += 1
   endfor
 
-  if !stdin.is_pty
-    call ptm.close()
-  endif
-  if !stdout.is_pty
-    call ptm.close()
-  endif
-  call pts.close()
   if npipe == 3
     call errsink.in.close()
+  endif
+  if is_pty
+    if !stdin.is_pty
+      call ptm.close()
+    endif
+    if !stdout.is_pty
+      call ptm.close()
+    endif
+    call pts.close()
   endif
 
   let proc = {}
