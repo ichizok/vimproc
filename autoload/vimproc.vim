@@ -1228,9 +1228,11 @@ endfunction
 
 function! s:vp_file_close() dict
   if self.fd > 0
-    if has_key(self, '__shared') && self.__shared.count > 1
+    if has_key(self, '__shared')
       let self.__shared.count -= 1
-      return
+      if self.__shared.count != 0
+        return
+      endif
     endif
     call s:libcall('vp_file_close', [self.fd])
     let self.fd = 0
@@ -1282,9 +1284,11 @@ endfunction
 function! s:vp_pipe_close() dict
   " echomsg 'close:'.self.fd
   if self.fd > 0
-    if has_key(self, '__shared.count') && self.__shared.count > 1
+    if has_key(self, '__shared')
       let self.__shared.count -= 1
-      return
+      if self.__shared.count != 0
+        return
+      endif
     endif
     call s:libcall('vp_pipe_close', [self.fd])
     let self.fd = 0
@@ -1421,9 +1425,11 @@ endfunction
 
 function! s:vp_pty_close() dict
   if self.fd > 0
-    if has_key(self, '__shared.count') && self.__shared.count > 1
+    if has_key(self, '__shared')
       let self.__shared.count -= 1
-      return
+      if self.__shared.count != 0
+        return
+      endif
     endif
     call s:libcall('vp_pty_close', [self.fd])
     let self.fd = 0
