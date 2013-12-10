@@ -471,7 +471,9 @@ function! s:plineopen(npipe, commands, is_pty) "{{{
   let conduit = [0, 0, 0, 0]
 
   if npipe == 3
-    let [fd_ein, fd_eout] = s:vp_pipe_open()
+    let [fd_ein, fd_eout] = is_pty
+          \ ? s:vp_pty_open(winwidth(0)-5, winheight(0))
+          \ : s:vp_pipe_open()
     let errsink = {
           \ 'in' : s:fdopen(fd_ein,
           \   'vp_pipe_close', 'vp_pipe_read', 'vp_pipe_write'),

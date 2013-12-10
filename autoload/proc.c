@@ -472,34 +472,22 @@ vp_proc_spawn(char *args)
         fd[2][0] = 0;
     }
 
-    pid = fork();
-    if (pid < 0) {
+    if ((pid = fork()) < 0) {
         VP_GOTO_ERROR("fork() error: %s");
     } else if (pid == 0) {
         /* child */
         char **argv;
         int i;
 
-        /* Set process group. */
-        setpgid(0, 0);
-
-        /* Detach from tty if notty is required. */
-        if (!is_pty) {
-#ifndef TIOCNOTTY
+        if (is_pty) {
             setsid();
-#else
-            char name[L_ctermid];
-
-            if (ctermid(name)[0] != '\0') {
-                int tfd;
-
-                if ((tfd = open(name, O_RDONLY)) != -1) {
-                    ioctl(tfd, TIOCNOTTY, NULL);
-                    close(tfd);
-                }
-            }
+#ifdef TIOCSCTTY
+            ioctl(pty[1], TIOCSCTTY, NULL);
 #endif
         }
+
+        /* Set process group. */
+        setpgid(0, 0);
 
         if (fd[0][1] > 0) {
             close(fd[0][1]);
@@ -542,6 +530,24 @@ vp_proc_spawn(char *args)
         MANIP_FD(fd[1][1], STDOUT_FILENO);
         MANIP_FD(fd[2][1], STDERR_FILENO);
 #undef MANIP_FD
+
+        /* Detach from tty if notty is required. */
+        if (!is_pty) {
+#ifndef TIOCNOTTY
+            setsid();
+#else
+            char name[L_ctermid];
+
+            if (ctermid(name)[0] != '\0') {
+                int tfd;
+
+                if ((tfd = open(name, O_RDONLY)) != -1) {
+                    ioctl(tfd, TIOCNOTTY, NULL);
+                    close(tfd);
+                }
+            }
+#endif
+        }
 
         argv = malloc(sizeof(char *) * (argc+1));
         if (argv == NULL) {
