@@ -664,57 +664,56 @@ function! s:parse_wildcard(script) "{{{
 endfunction"}}}
 function! s:parse_redirection(script) "{{{
   let script = ''
-  let fd = { 'stdin' : '', 'stdout' : '', 'stderr' : '' }
+  let fd = ['', '', '', '']
 
   let i = 0
   let max = len(a:script)
   while i < max
-    if a:script[i] == '<'
+    if a:script[i :] =~# '^0\?<'
       " Input redirection.
-      let fd.stdin = matchstr(a:script, '<\s*\zs\f*', i)
-      let i = matchend(a:script, '<\s*\zs\f*', i)
-    elseif a:script[i] =~ '^[12]' && a:script[i :] =~ '^[12]>'
-      " Output redirection.
-      let i += 2
-      if a:script[i-2] == 1
-        let fd.stdout = matchstr(a:script, '^\s*\zs\f*', i)
-      else
-        let fd.stderr = matchstr(a:script, '^\s*\zs\(\f\+\|&\d\+\)', i)
-        if fd.stderr ==# '&1'
-          " Redirection to stdout.
-          let fd.stderr = '/dev/stdout'
-        endif
-      endif
+      let skip = matchend(a:script, '^\%(&-\)\?\s*', i+1)
+      let in = matchstr(a:script, '^\f*', skip)
 
-      let i = matchend(a:script, '^\s*\zs\(\f\+\|&\d\+\)', i)
-    elseif a:script[i] == '&' && a:script[i :] =~ '^&>'
-      " Output stderr.
-      let i += 2
-      let fd.stderr = matchstr(a:script, '^\s*\zs\f*', i)
-      let i = matchend(a:script, '^\s*\zs\f*', i)
-    elseif a:script[i] == '>'
+      let fd[0] = a:script[i+1 : i+2] ==# '&-' ? '@-' : in
+      let i = skip + len(in)
+    elseif a:script[i :] =~# '^[123]\?>'
       " Output redirection.
-      if a:script[i :] =~ '^>&'
-        " Output stderr.
-        let i += 2
-        let fd.stderr = matchstr(a:script, '^\s*\zs\f*', i)
-      elseif a:script[i :] =~ '^>>'
-        " Append stdout.
-        let i += 2
-        let fd.stdout = '>' . matchstr(a:script, '^\s*\zs\f*', i)
-      else
-        " Output stdout.
+      if a:script[i] ==# '>'
+        let n = 1
         let i += 1
-        let fd.stdout = matchstr(a:script, '^\s*\zs\f*', i)
+      else
+        let n = a:script[i]
+        let i += 2
       endif
 
-      let i = matchend(a:script, '^\s*\zs\f*', i)
+      let skip = matchend(a:script, '^[>&]\?\s*', i)
+      let out = matchstr(a:script, '^\f\+', skip)
+
+      if a:script[i] ==# '&'
+        if a:script[i+1] ==# '-'
+          let fd[n] = '@-'
+        elseif out ==# '1' || out ==# '2' || out ==# '3'
+          if n != out && fd[out] !=# '@-'
+            let fd[n] = fd[out] ==# '' ? '@' . out
+                  \ : fd[out] ==# '@' . n ? '' : fd[out]
+          endif
+        elseif n == 1
+          let fd[1] = out
+          let fd[2] = out
+        endif
+      elseif a:script[i] ==# '>'
+        let fd[n] = '>' . out
+      else
+        let fd[n] = out
+      endif
+
+      let i = skip + len(out)
     else
       let [script, i] = s:skip_else(script, a:script, i)
     endif
   endwhile
 
-  return [fd, script]
+  return [{ 'stdin' : fd[0], 'stdout' : fd[1], 'stderr' : fd[2] }, script]
 endfunction"}}}
 
 function! s:parse_single_quote(script, i) "{{{
