@@ -104,6 +104,7 @@ EXPORT const char *vp_socket_write(char *args);/* [nleft] (socket, hd, timeout) 
 
 EXPORT const char *vp_host_exists(char *args); /* [int] (host) */
 
+EXPORT const char *vp_encode(char *args);      /* [encoded_str] (decode_str) */
 EXPORT const char *vp_decode(char *args);      /* [decoded_str] (encode_str) */
 
 EXPORT const char *vp_open(char *args);      /* [] (path) */
@@ -1143,6 +1144,35 @@ vp_open(char *args)
     }
 
     return NULL;
+}
+
+const char *
+vp_encode(char *args)
+{
+    vp_stack_t stack;
+    size_t len;
+    char *str;
+    char *p, *q;
+
+    VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
+    VP_RETURN_IF_FAIL(vp_stack_pop_str(&stack, &str));
+
+    len = strlen(str);
+
+    VP_RETURN_IF_FAIL(vp_stack_reserve(&_result,
+            (_result.top - _result.buf) + (len * 2) + sizeof(VP_EOV_STR)));
+
+    for (p = str, q = _result.top; p < str + len; ) {
+        const char *bs = &XD2CHR[2 * (unsigned char)*(p++)];
+
+        *(q++) = bs[0];
+        *(q++) = bs[1];
+    }
+    *(q++) = VP_EOV;
+    *q = '\0';
+    _result.top = q;
+
+    return vp_stack_return(&_result);
 }
 
 const char *

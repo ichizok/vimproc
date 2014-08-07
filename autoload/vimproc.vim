@@ -1016,13 +1016,26 @@ endfunction"}}}
 " UTILS
 
 function! s:str2hd(str)
-  return join(map(range(len(a:str)),
-        \ 'printf("%02X", char2nr(a:str[v:val]))'), '')
+  return get(s:libcall('vp_encode', [a:str]), 0, '')
 endfunction
 
 function! s:hd2str(hd)
   " a:hd is a list because to avoid copying the value.
   return get(s:libcall('vp_decode', [a:hd[0]]), 0, '')
+endfunction
+
+function! s:str2hd_lua(str)
+  let ret = []
+  lua << EOF
+do
+  local ret = vim.eval('ret')
+  local str = vim.eval('a:str')
+  ret:add(str:gsub(".", function(c)
+    return string.format("%02X", c:byte(1))
+  end))
+end
+EOF
+  return ret[0]
 endfunction
 
 function! s:hd2str_lua(hd)
