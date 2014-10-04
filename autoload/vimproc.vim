@@ -223,12 +223,11 @@ function! s:system(cmdline, is_passwd, input, timeout, is_pty) abort "{{{
   endif
 
   " Open pipe.
-  let subproc = (type(a:cmdline[0]) == type('')) ? vimproc#popen3(a:cmdline) :
-        \ a:is_pty ? vimproc#ptyopen(a:cmdline):
-        \ vimproc#pgroup_open(a:cmdline)
+  let subproc = (type(a:cmdline[0]) == type('')) ? vimproc#popen2(a:cmdline) :
+        \ a:is_pty ? vimproc#ptyopen(a:cmdline, 2) :
+        \ vimproc#pgroup_open(a:cmdline, 0, 2)
 
   let outbuf = []
-  let errbuf = []
 
   try
     if a:input != ''
@@ -250,7 +249,7 @@ function! s:system(cmdline, is_passwd, input, timeout, is_pty) abort "{{{
       call subproc.stdin.close()
     endif
 
-    while !subproc.stdout.eof || !subproc.stderr.eof
+    while !subproc.stdout.eof
       if deadline "{{{
         " Check timeout.
         let tick = reltimestr(reltime(start))
@@ -262,42 +261,21 @@ function! s:system(cmdline, is_passwd, input, timeout, is_pty) abort "{{{
         let timeout = (deadline - elapse) / 2
       endif"}}}
 
-      if !subproc.stdout.eof "{{{
-        let out = subproc.stdout.read(-1, timeout)
+      let out = subproc.stdout.read(-1, timeout)
 
-        if a:is_passwd && out =~# g:vimproc_password_pattern
-          redraw
-          echo out
+      if a:is_passwd && out =~# g:vimproc_password_pattern
+        redraw
+        echo out
 
-          " Password input.
-          set imsearch=0
-          let in = vimproc#util#iconv(inputsecret('Input Secret : ')."\<NL>",
-                \ &encoding, vimproc#util#termencoding())
+        " Password input.
+        set imsearch=0
+        let in = vimproc#util#iconv(inputsecret('Input Secret : ')."\<NL>",
+              \ &encoding, vimproc#util#termencoding())
 
-          call subproc.stdin.write(in)
-        else
-          let outbuf += [out]
-        endif
-      endif"}}}
-
-      if !subproc.stderr.eof "{{{
-        let out = subproc.stderr.read(-1, timeout)
-
-        if a:is_passwd && out =~# g:vimproc_password_pattern
-          redraw
-          echo out
-
-          " Password input.
-          set imsearch=0
-          let in = vimproc#util#iconv(inputsecret('Input Secret : ') . "\<NL>",
-                \ &encoding, vimproc#util#termencoding())
-
-          call subproc.stdin.write(in)
-        else
-          let outbuf += [out]
-          let errbuf += [out]
-        endif
-      endif"}}}
+        call subproc.stdin.write(in)
+      else
+        let outbuf += [out]
+      endif
     endwhile
   catch
     call subproc.kill(g:vimproc#SIGTERM)
@@ -308,7 +286,6 @@ function! s:system(cmdline, is_passwd, input, timeout, is_pty) abort "{{{
     endif
   finally
     let output = join(outbuf, '')
-    let s:last_errmsg = join(errbuf, '')
 
     call subproc.waitpid()
   endtry
@@ -364,12 +341,8 @@ function! vimproc#system2(...) abort "{{{
   let output = call('vimproc#system', args)
 
   " This function converts application encoding to &encoding.
-  let output = vimproc#util#iconv(
+  return vimproc#util#iconv(
         \ output, vimproc#util#stdoutencoding(), &encoding)
-  let s:last_errmsg = vimproc#util#iconv(
-        \ s:last_errmsg, vimproc#util#stderrencoding(), &encoding)
-
-  return output
 endfunction"}}}
 function! vimproc#system_passwd(cmdline, ...) abort "{{{
   if type(a:cmdline) == type('')
@@ -492,6 +465,8 @@ function! vimproc#plineopen3(commands, ...) abort "{{{
   return s:plineopen(3, commands, is_pty)
 endfunction"}}}
 function! s:plineopen(npipe, commands, is_pty) abort "{{{
+  let s:last_errmsg = ''
+
   let pid_list = []
   let stdin_list = []
   let stdout_list = []
