@@ -82,6 +82,7 @@
 # define ctermid(x) "/dev/tty"
 #endif
 
+/* Include Stack API */
 #include "vimstack.c"
 
 const int debug = 0;
@@ -121,8 +122,6 @@ const char *vp_socket_write(char *args);/* [nleft] (socket, hd, timeout) */
 
 const char *vp_host_exists(char *args); /* [int] (host) */
 
-const char *vp_decode(char *args);      /* [decoded_str] (encode_str) */
-
 const char *vp_get_signals(char *args); /* [signals] () */
 /* --- */
 
@@ -130,6 +129,10 @@ const char *vp_get_signals(char *args); /* [signals] () */
 #define VP_READ_BUFSIZE (VP_BUFSIZE - 4)
 
 static vp_stack_t _result = VP_STACK_NULL;
+
+/* Include Common API */
+#include "common.c"
+/* --- */
 
 const char *
 vp_dlopen(char *args)
@@ -163,117 +166,6 @@ vp_dlclose(char *args)
         return dlerror();
     vp_stack_free(&_result);
     return NULL;
-}
-
-const char *
-vp_dlversion(char *args)
-{
-    vp_stack_push_num(&_result, "%2d%02d", 8, 0);
-    return vp_stack_return(&_result);
-}
-
-static int
-str_to_oflag(const char *flags)
-{
-    int oflag = 0;
-
-    if (strchr("rwa", flags[0])) {
-        if (strchr(flags, '+')) {
-            oflag = O_RDWR;
-        } else {
-            oflag = flags[0] == 'r' ? O_RDONLY : O_WRONLY;
-        }
-        if (flags[0] == 'w' || flags[0] == 'a') {
-            oflag |= O_CREAT | (flags[0] == 'w' ? O_TRUNC : O_APPEND);
-        }
-#define VP_CHR_TO_OFLAG(_c, _f) do { \
-    if (strchr(flags, (_c))) { oflag |= (_f); } \
-} while (0)
-
-#ifdef O_EXCL
-        VP_CHR_TO_OFLAG('x', O_EXCL);
-#endif
-#ifdef O_CLOEXEC
-        VP_CHR_TO_OFLAG('e', O_CLOEXEC);
-#endif
-#ifdef O_BINARY
-        VP_CHR_TO_OFLAG('b', O_BINARY);
-#endif
-#ifdef O_TEXT
-        VP_CHR_TO_OFLAG('t', O_TEXT);
-#endif
-#ifdef O_SEQUENTIAL
-        VP_CHR_TO_OFLAG('S', O_SEQUENTIAL);
-#endif
-#ifdef O_RANDOM
-        VP_CHR_TO_OFLAG('R', O_RANDOM);
-#endif
-
-#undef VP_CHR_TO_OFLAG
-    } else {
-        if (strstr(flags, "O_RDONLY")) {
-            oflag = O_RDONLY;
-        } else if (strstr(flags, "O_WRONLY")) {
-            oflag = O_WRONLY;
-        } else if (strstr(flags, "O_RDWR")) {
-            oflag = O_RDWR;
-        } else {
-            return -1;
-        }
-#define VP_STR_TO_OFLAG(_f) do { \
-    if (strstr(flags, #_f)) { oflag |= (_f); } \
-} while (0)
-
-        VP_STR_TO_OFLAG(O_APPEND);
-        VP_STR_TO_OFLAG(O_CREAT);
-        VP_STR_TO_OFLAG(O_TRUNC);
-#ifdef O_EXCL
-        VP_STR_TO_OFLAG(O_EXCL);
-#endif
-#ifdef O_NONBLOCK
-        VP_STR_TO_OFLAG(O_NONBLOCK);
-#endif
-#ifdef O_SHLOCK
-        VP_STR_TO_OFLAG(O_SHLOCK);
-#endif
-#ifdef O_EXLOCK
-        VP_STR_TO_OFLAG(O_EXLOCK);
-#endif
-#ifdef O_DIRECT
-        VP_STR_TO_OFLAG(O_DIRECT);
-#endif
-#ifdef O_FSYNC
-        VP_STR_TO_OFLAG(O_FSYNC);
-#endif
-#ifdef O_NOFOLLOW
-        VP_STR_TO_OFLAG(O_NOFOLLOW);
-#endif
-#ifdef O_TEMPORARY
-        VP_STR_TO_OFLAG(O_TEMPORARY);
-#endif
-#ifdef O_RANDOM
-        VP_STR_TO_OFLAG(O_RANDOM);
-#endif
-#ifdef O_SEQUENTIAL
-        VP_STR_TO_OFLAG(O_SEQUENTIAL);
-#endif
-#ifdef O_BINARY
-        VP_STR_TO_OFLAG(O_BINARY);
-#endif
-#ifdef O_TEXT
-        VP_STR_TO_OFLAG(O_TEXT);
-#endif
-#ifdef O_INHERIT
-        VP_STR_TO_OFLAG(O_INHERIT);
-#endif
-#ifdef _O_SHORT_LIVED
-        VP_STR_TO_OFLAG(O_SHORT_LIVED);
-#endif
-
-#undef VP_STR_TO_OFLAG
-    }
-
-    return oflag;
 }
 
 const char *
@@ -1015,41 +907,6 @@ vp_readdir(char *args)
         }
     }
     closedir(dir);
-
-    return vp_stack_return(&_result);
-}
-
-const char *
-vp_decode(char *args)
-{
-    vp_stack_t stack;
-    size_t len;
-    char *str;
-    char *p, *q;
-
-    VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
-    VP_RETURN_IF_FAIL(vp_stack_pop_str(&stack, &str));
-
-    len = strlen(str);
-    if (len % 2 != 0) {
-        return "vp_decode: invalid data length";
-    }
-
-    VP_RETURN_IF_FAIL(vp_stack_reserve(&_result,
-            (_result.top - _result.buf) + (len / 2) + sizeof(VP_EOV_STR)));
-
-    for (p = str, q = _result.top; p < str + len; ) {
-        char hb, lb;
-
-        hb = CHR2XD[(int)*(p++)];
-        lb = CHR2XD[(int)*(p++)];
-        if (hb != (char)-1 && lb != (char)-1) {
-            *(q++) = (hb << 4) | lb;
-        }
-    }
-    *(q++) = VP_EOV;
-    *q = '\0';
-    _result.top = q;
 
     return vp_stack_return(&_result);
 }

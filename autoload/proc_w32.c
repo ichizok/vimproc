@@ -65,14 +65,15 @@ const int debug = 0;
 # endif
 #endif
 
+/* Include Stack API */
 #include "vimstack.c"
+/* --- */
 
 #define lengthof(arr)   (sizeof(arr) / sizeof((arr)[0]))
 
 /* API */
 EXPORT const char *vp_dlopen(char *args);      /* [handle] (path) */
 EXPORT const char *vp_dlclose(char *args);     /* [] (handle) */
-EXPORT const char *vp_dlversion(char *args);     /* [version] () */
 
 EXPORT const char *vp_file_open(char *args);   /* [fd] (path, flags, mode) */
 EXPORT const char *vp_file_close(char *args);  /* [] (fd) */
@@ -103,8 +104,6 @@ EXPORT const char *vp_socket_read(char *args); /* [hd, eof] (socket, cnt, timeou
 EXPORT const char *vp_socket_write(char *args);/* [nleft] (socket, hd, timeout) */
 
 EXPORT const char *vp_host_exists(char *args); /* [int] (host) */
-
-EXPORT const char *vp_decode(char *args);      /* [decoded_str] (encode_str) */
 
 EXPORT const char *vp_open(char *args);      /* [] (path) */
 EXPORT const char *vp_readdir(char *args);  /* [files] (dirname) */
@@ -185,6 +184,10 @@ lasterror()
 
 static vp_stack_t _result = VP_STACK_NULL;
 
+/* Include Common API */
+#include "common.c"
+/* --- */
+
 const char *
 vp_dlopen(char *args)
 {
@@ -221,117 +224,6 @@ vp_dlclose(char *args)
         return lasterror();
     vp_stack_free(&_result);
     return NULL;
-}
-
-const char *
-vp_dlversion(char *args)
-{
-    vp_stack_push_num(&_result, "%2d%02d", 8, 0);
-    return vp_stack_return(&_result);
-}
-
-static int
-str_to_oflag(const char *flags)
-{
-    int oflag = 0;
-
-    if (strchr("rwa", flags[0])) {
-        if (strchr(flags, '+')) {
-            oflag = _O_RDWR;
-        } else {
-            oflag = flags[0] == 'r' ? _O_RDONLY : _O_WRONLY;
-        }
-        if (flags[0] == 'w' || flags[0] == 'a') {
-            oflag |= _O_CREAT | (flags[0] == 'w' ? _O_TRUNC : _O_APPEND);
-        }
-#define VP_CHR_TO_OFLAG(_c, _f) do { \
-    if (strchr(flags, (_c))) { oflag |= _ ## _f; } \
-} while (0)
-
-#ifdef _O_EXCL
-        VP_CHR_TO_OFLAG('x', O_EXCL);
-#endif
-#ifdef _O_CLOEXEC
-        VP_CHR_TO_OFLAG('e', O_CLOEXEC);
-#endif
-#ifdef _O_BINARY
-        VP_CHR_TO_OFLAG('b', O_BINARY);
-#endif
-#ifdef _O_TEXT
-        VP_CHR_TO_OFLAG('t', O_TEXT);
-#endif
-#ifdef _O_SEQUENTIAL
-        VP_CHR_TO_OFLAG('S', O_SEQUENTIAL);
-#endif
-#ifdef _O_RANDOM
-        VP_CHR_TO_OFLAG('R', O_RANDOM);
-#endif
-
-#undef VP_CHR_TO_OFLAG
-    } else {
-        if (strstr(flags, "O_RDONLY")) {
-            oflag = _O_RDONLY;
-        } else if (strstr(flags, "O_WRONLY")) {
-            oflag = _O_WRONLY;
-        } else if (strstr(flags, "O_RDWR")) {
-            oflag = _O_RDWR;
-        } else {
-            return -1;
-        }
-#define VP_STR_TO_OFLAG(_f) do { \
-    if (strstr(flags, #_f)) { oflag |= _ ## _f; } \
-} while (0)
-
-        VP_STR_TO_OFLAG(O_APPEND);
-        VP_STR_TO_OFLAG(O_CREAT);
-        VP_STR_TO_OFLAG(O_TRUNC);
-#ifdef _O_EXCL
-        VP_STR_TO_OFLAG(O_EXCL);
-#endif
-#ifdef _O_NONBLOCK
-        VP_STR_TO_OFLAG(O_NONBLOCK);
-#endif
-#ifdef _O_SHLOCK
-        VP_STR_TO_OFLAG(O_SHLOCK);
-#endif
-#ifdef _O_EXLOCK
-        VP_STR_TO_OFLAG(O_EXLOCK);
-#endif
-#ifdef _O_DIRECT
-        VP_STR_TO_OFLAG(O_DIRECT);
-#endif
-#ifdef _O_FSYNC
-        VP_STR_TO_OFLAG(O_FSYNC);
-#endif
-#ifdef _O_NOFOLLOW
-        VP_STR_TO_OFLAG(O_NOFOLLOW);
-#endif
-#ifdef _O_TEMPORARY
-        VP_STR_TO_OFLAG(O_TEMPORARY);
-#endif
-#ifdef _O_RANDOM
-        VP_STR_TO_OFLAG(O_RANDOM);
-#endif
-#ifdef _O_SEQUENTIAL
-        VP_STR_TO_OFLAG(O_SEQUENTIAL);
-#endif
-#ifdef _O_BINARY
-        VP_STR_TO_OFLAG(O_BINARY);
-#endif
-#ifdef _O_TEXT
-        VP_STR_TO_OFLAG(O_TEXT);
-#endif
-#ifdef _O_INHERIT
-        VP_STR_TO_OFLAG(O_INHERIT);
-#endif
-#ifdef _O_SHORT_LIVED
-        VP_STR_TO_OFLAG(O_SHORT_LIVED);
-#endif
-
-#undef VP_STR_TO_OFLAG
-    }
-
-    return oflag;
 }
 
 const char *
@@ -1191,41 +1083,6 @@ vp_open(char *args)
     }
 
     return NULL;
-}
-
-const char *
-vp_decode(char *args)
-{
-    vp_stack_t stack;
-    size_t len;
-    char *str;
-    char *p, *q;
-
-    VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
-    VP_RETURN_IF_FAIL(vp_stack_pop_str(&stack, &str));
-
-    len = strlen(str);
-    if (len % 2 != 0) {
-        return "vp_decode: invalid data length";
-    }
-
-    VP_RETURN_IF_FAIL(vp_stack_reserve(&_result,
-            (_result.top - _result.buf) + (len / 2) + sizeof(VP_EOV_STR)));
-
-    for (p = str, q = _result.top; p < str + len; ) {
-        char hb, lb;
-
-        hb = CHR2XD[(int)*(p++)];
-        lb = CHR2XD[(int)*(p++)];
-        if (hb >= 0 && lb >= 0) {
-            *(q++) = (char)((hb << 4) | lb);
-        }
-    }
-    *(q++) = VP_EOV;
-    *q = '\0';
-    _result.top = q;
-
-    return vp_stack_return(&_result);
 }
 
 const char *
