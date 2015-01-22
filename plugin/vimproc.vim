@@ -35,12 +35,12 @@ let s:save_cpo = &cpo
 set cpo&vim
 " }}}
 
-command! -nargs=* VimProcInstall call s:install(<q-args>)
+command! -nargs=* -bang VimProcInstall call s:install(<q-args>, <bang>0)
 command! -nargs=+ -complete=shellcmd VimProcBang call s:bang(<q-args>)
 command! -nargs=+ -complete=shellcmd VimProcRead call s:read(<q-args>)
 
 " Command functions:
-function! s:install(args) abort "{{{
+function! s:install(args, bang) abort "{{{
   let savemp = &makeprg
   let savecwd = getcwd()
 
@@ -56,10 +56,17 @@ function! s:install(args) abort "{{{
     " Change to the correct directory and run make
     execute 'lcd' fnameescape(fnamemodify(g:vimproc#dll_path, ':h:h'))
     execute 'make' a:args
+
+    if a:bang
+      if vimproc#dll_enabled()
+        call vimproc#_finalize()
+      endif
+      runtime autoload/vimproc.vim
+    endif
   finally
-     " Restore working directory and makeprg
-     execute 'lcd' fnameescape(savecwd)
-     let &makeprg = savemp
+    " Restore working directory and makeprg
+    execute 'lcd' fnameescape(savecwd)
+    let &makeprg = savemp
   endtry
 endfunction"}}}
 function! s:bang(cmdline) abort "{{{

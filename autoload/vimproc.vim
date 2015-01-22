@@ -113,6 +113,10 @@ let g:vimproc#dll_path =
       \ vimproc#util#expand(g:vimproc#dll_path),
       \ &encoding, vimproc#util#termencoding())
 
+function! vimproc#dll_enabled() "{{{
+  return exists('s:dll_handle')
+endfunction"}}}
+
 " Backward compatibility.
 let g:vimproc_password_pattern = g:vimproc#password_pattern
 
@@ -1141,6 +1145,10 @@ function! vimproc#analyze_shebang(filename) abort "{{{
   return shebang + [a:filename]
 endfunction"}}}
 
+function! vimproc#_finalize() "{{{
+  call s:finalize()
+endfunction"}}}
+
 "-----------------------------------------------------------
 " LOW LEVEL API
 
@@ -1293,6 +1301,7 @@ function! s:finalize() abort
 
   if exists('s:dll_handle')
     call s:vp_dlclose(s:dll_handle)
+    unlet s:dll_handle
   endif
 endfunction
 
