@@ -289,10 +289,29 @@ fd_set_nonblock(int fd)
 #endif
     return 0;
 }
+
+static int
+fd_set_noncanon(int fd)
+{
+#if defined(ICANON) && defined(VTIME) && defined(VMIN) && defined(TCSANOW)
+    struct termios t;
+
+    if (tcgetattr(fd, &t) == -1)
+        return -1;
+    t.c_lflag &= ~ICANON;
+    t.c_cc[VTIME] = 0;
+    t.c_cc[VMIN] = 0;
+    return tcsetattr(fd, TCSANOW, &t);
+#else
+    return 0;
+#endif
+}
 #ifdef __linux__
 # define VP_SET_NONBLOCK_IF_NEEDED(_fd) (void)fd_set_nonblock(_fd)
+# define VP_SET_NONCANON_IF_NEEDED(_fd) (void)fd_set_noncanon(_fd)
 #else
 # define VP_SET_NONBLOCK_IF_NEEDED(_fd) do { /* nop */ } while (0)
+# define VP_SET_NONCANON_IF_NEEDED(_fd) do { /* nop */ } while (0)
 #endif
 
 const char *
@@ -729,6 +748,7 @@ vp_pty_open(char *args)
                 VP_GOTO_ERROR("openpty() error: %s");
             }
             VP_SET_NONBLOCK_IF_NEEDED(fd[2][0]);
+            VP_SET_NONCANON_IF_NEEDED(fd[2][0]);
         }
     }
 
@@ -799,6 +819,7 @@ vp_pty_open(char *args)
         if (hstdout == 0) {
             fd[1][0] = hstdin == 0 ? dup(fdm) : fdm;
             VP_SET_NONBLOCK_IF_NEEDED(fd[1][0]);
+            VP_SET_NONCANON_IF_NEEDED(fd[1][0]);
         }
 
         vp_stack_push_num(&_result, "%d", pid);
