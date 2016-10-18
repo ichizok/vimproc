@@ -505,6 +505,22 @@ close_allfd(int fds[3][2])
     }
 }
 
+static void
+block_signals(sigset_t *set)
+{
+    sigset_t newset;
+
+    sigfillset(&newset);
+
+    sigprocmask(SIG_BLOCK, &newset, set);
+}
+
+static void
+unblock_signals(sigset_t *set)
+{
+    sigprocmask(SIG_SETMASK, set, NULL);
+}
+
 const char *
 vp_pipe_open(char *args)
 {
@@ -514,8 +530,8 @@ vp_pipe_open(char *args)
     int argc;
     int fd[3][2] = {{0}};
     pid_t pid;
-    int dummy;
     char *errfmt;
+    sigset_t curset;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &npipe));
@@ -551,13 +567,19 @@ vp_pipe_open(char *args)
         }
     }
 
+    block_signals(&curset);
+
     pid = fork();
     if (pid < 0) {
+        unblock_signals(&curset);
+
         VP_GOTO_ERROR("fork() error: %s");
     } else if (pid == 0) {
         /* child */
         char **argv;
+        char *errstr;
         int i;
+        int dummy;
 
         /* Set process group. */
         setpgid(0, 0);
@@ -622,40 +644,42 @@ vp_pipe_open(char *args)
         }
         argv[argc] = NULL;
 
-        execv(argv[0], argv);
-        /* error */
-        goto child_error;
-    } else {
-        /* parent */
-        if (fd[0][0] > 0) {
-            close(fd[0][0]);
-        }
-        if (fd[1][1] > 0) {
-            close(fd[1][1]);
-        }
-        if (fd[2][1] > 0) {
-            close(fd[2][1]);
-        }
+        unblock_signals(&curset);
 
-        vp_stack_push_num(&_result, "%d", pid);
-        vp_stack_push_num(&_result, "%d", fd[0][1]);
-        vp_stack_push_num(&_result, "%d", fd[1][0]);
-        if (npipe == 3) {
-            vp_stack_push_num(&_result, "%d", fd[2][0]);
-        }
-        return vp_stack_return(&_result);
+        execv(argv[0], argv);
+
+child_error:
+        /* error */
+        errstr = strerror(errno);
+        dummy = write(STDERR_FILENO, errstr, strlen(errstr));
+        _exit(EXIT_FAILURE);
     }
-    /* DO NOT REACH HERE */
-    return NULL;
+
+    /* parent */
+    unblock_signals(&curset);
+
+    if (fd[0][0] > 0) {
+        close(fd[0][0]);
+    }
+    if (fd[1][1] > 0) {
+        close(fd[1][1]);
+    }
+    if (fd[2][1] > 0) {
+        close(fd[2][1]);
+    }
+
+    vp_stack_push_num(&_result, "%d", pid);
+    vp_stack_push_num(&_result, "%d", fd[0][1]);
+    vp_stack_push_num(&_result, "%d", fd[1][0]);
+    if (npipe == 3) {
+        vp_stack_push_num(&_result, "%d", fd[2][0]);
+    }
+    return vp_stack_return(&_result);
 
     /* error */
 error:
     close_allfd(fd);
     return vp_stack_return_error(&_result, errfmt, strerror(errno));
-
-child_error:
-    dummy = write(STDOUT_FILENO, strerror(errno), strlen(strerror(errno)));
-    _exit(EXIT_FAILURE);
 #undef VP_GOTO_ERROR
 }
 
@@ -686,11 +710,11 @@ vp_pty_open(char *args)
     int fd[3][2] = {{0}};
     pid_t pid;
     struct winsize ws = {0, 0, 0, 0};
-    int dummy;
     int hstdin, hstderr, hstdout;
     int fdm;
     int npipe;
     char *errfmt;
+    sigset_t curset;
 
     VP_RETURN_IF_FAIL(vp_stack_from_args(&stack, args));
     VP_RETURN_IF_FAIL(vp_stack_pop_num(&stack, "%d", &npipe));
@@ -732,13 +756,19 @@ vp_pty_open(char *args)
         }
     }
 
+    block_signals(&curset);
+
     pid = forkpty(&fdm, NULL, NULL, &ws);
     if (pid < 0) {
+        unblock_signals(&curset);
+
         VP_GOTO_ERROR("fork() error: %s");
     } else if (pid == 0) {
         /* child */
         char **argv;
+        char *errstr;
         int i;
+        int dummy;
 
         /* Close pipe */
         if (fd[1][0] > 0) {
@@ -781,45 +811,47 @@ vp_pty_open(char *args)
         }
         argv[argc] = NULL;
 
+        unblock_signals(&curset);
+
         execv(argv[0], argv);
-        /* error */
-        goto child_error;
-    } else {
-        /* parent */
-        if (fd[1][1] > 0) {
-            close(fd[1][1]);
-        }
-        if (fd[2][1] > 0) {
-            close(fd[2][1]);
-        }
-
-        if (hstdin == 0) {
-            fd[0][1] = fdm;
-        }
-        if (hstdout == 0) {
-            fd[1][0] = hstdin == 0 ? dup(fdm) : fdm;
-            VP_SET_NONBLOCK_IF_NEEDED(fd[1][0]);
-        }
-
-        vp_stack_push_num(&_result, "%d", pid);
-        vp_stack_push_num(&_result, "%d", fd[0][1]);
-        vp_stack_push_num(&_result, "%d", fd[1][0]);
-        if (npipe == 3) {
-            vp_stack_push_num(&_result, "%d", fd[2][0]);
-        }
-        return vp_stack_return(&_result);
-    }
-    /* DO NOT REACH HERE */
-    return NULL;
-
-    /* error */
-error:
-    close_allfd(fd);
-    return vp_stack_return_error(&_result, errfmt, strerror(errno));
 
 child_error:
-    dummy = write(STDOUT_FILENO, strerror(errno), strlen(strerror(errno)));
-    _exit(EXIT_FAILURE);
+        /* error */
+        errstr = strerror(errno);
+        dummy = write(STDERR_FILENO, errstr, strlen(errstr));
+        _exit(EXIT_FAILURE);
+    }
+
+    /* parent */
+    unblock_signals(&curset);
+
+    if (fd[1][1] > 0) {
+        close(fd[1][1]);
+    }
+    if (fd[2][1] > 0) {
+        close(fd[2][1]);
+    }
+
+    if (hstdin == 0) {
+        fd[0][1] = fdm;
+    }
+    if (hstdout == 0) {
+        fd[1][0] = hstdin == 0 ? dup(fdm) : fdm;
+        VP_SET_NONBLOCK_IF_NEEDED(fd[1][0]);
+    }
+
+    vp_stack_push_num(&_result, "%d", pid);
+    vp_stack_push_num(&_result, "%d", fd[0][1]);
+    vp_stack_push_num(&_result, "%d", fd[1][0]);
+    if (npipe == 3) {
+        vp_stack_push_num(&_result, "%d", fd[2][0]);
+    }
+    return vp_stack_return(&_result);
+
+error:
+    /* error */
+    close_allfd(fd);
+    return vp_stack_return_error(&_result, errfmt, strerror(errno));
 #undef VP_GOTO_ERROR
 }
 
